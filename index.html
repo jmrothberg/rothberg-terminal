@@ -310,12 +310,25 @@
         }
 
         .quote-row {
-            display: grid;
-            grid-template-columns: 1fr auto auto;
-            gap: 8px;
-            padding: 3px 4px;
+            padding: 4px 4px;
             border-bottom: 1px dashed var(--border-color);
+            cursor: pointer;
+        }
+
+        .quote-row-main {
+            display: grid;
+            grid-template-columns: 1fr 64px auto auto;
+            gap: 8px;
             align-items: baseline;
+        }
+
+        .quote-row-meta {
+            margin-top: 2px;
+            padding-left: 2px;
+            font-size: 9px;
+            color: var(--text-dim);
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0.2px;
         }
 
         .quote-row:last-child { border-bottom: none; }
@@ -331,6 +344,14 @@
             font-size: 9px;
             margin-left: 6px;
         }
+
+        .quote-spark {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 20px;
+        }
+        .spark { display: block; }
 
         .quote-price {
             text-align: right;
@@ -352,6 +373,127 @@
 
         .quote-row.nodata .quote-price,
         .quote-row.nodata .quote-change { color: var(--text-dim); }
+
+        /* Drilldown overlay */
+        .drilldown-overlay {
+            position: fixed; inset: 0; z-index: 1000;
+            display: flex; align-items: center; justify-content: center;
+            padding: 20px;
+        }
+        .drilldown-backdrop {
+            position: absolute; inset: 0;
+            background: rgba(0, 0, 0, 0.78);
+        }
+        .drilldown-panel {
+            position: relative;
+            width: min(1100px, 100%);
+            max-height: calc(100vh - 40px);
+            background: var(--bg-panel);
+            border: 2px solid var(--text-primary);
+            display: flex; flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 0 30px rgba(0, 255, 0, 0.15);
+        }
+        .drilldown-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 10px 12px;
+            border-bottom: 2px solid var(--text-primary);
+            background: var(--bg-tray);
+        }
+        .drilldown-title { display: flex; align-items: baseline; gap: 12px; }
+        .drilldown-sym {
+            font-size: 18px; font-weight: 600;
+            color: var(--text-accent); letter-spacing: 0.5px;
+        }
+        .drilldown-name {
+            font-size: 11px; color: var(--text-dim);
+        }
+        .drilldown-body {
+            padding: 12px 14px;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        .drilldown-price-row {
+            display: flex; align-items: baseline; gap: 14px;
+            margin-bottom: 8px;
+        }
+        .dd-price {
+            font-size: 22px; font-weight: 500;
+            color: var(--text-primary);
+            font-variant-numeric: tabular-nums;
+        }
+        .dd-change {
+            font-size: 13px; font-variant-numeric: tabular-nums;
+        }
+        .dd-change.positive { color: var(--color-positive); }
+        .dd-change.negative { color: var(--color-negative); }
+        .dd-change.neutral { color: var(--color-neutral); }
+        .dd-market-state {
+            font-size: 9px; color: var(--text-dim);
+            letter-spacing: 0.5px;
+            border: 1px dashed var(--border-color);
+            padding: 2px 5px;
+        }
+        .drilldown-ranges {
+            display: flex; gap: 6px; flex-wrap: wrap;
+            padding: 6px 0 10px;
+            border-bottom: 1px dashed var(--border-color);
+            margin-bottom: 12px;
+        }
+        .drilldown-chart {
+            min-height: 260px;
+            display: block;
+            padding: 4px 0;
+        }
+        .drilldown-chart .loading,
+        .drilldown-chart .error-message {
+            padding: 60px 0; text-align: center;
+        }
+        .dd-chart { width: 100%; height: auto; display: block; }
+        .drilldown-section {
+            margin-top: 14px;
+            border-top: 1px dashed var(--border-color);
+            padding-top: 10px;
+        }
+        .drilldown-section-title {
+            color: var(--text-accent);
+            font-size: 10px; letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+        .dd-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 4px;
+            margin-bottom: 8px;
+        }
+        .dd-stat {
+            display: flex; justify-content: space-between; align-items: baseline;
+            padding: 3px 6px;
+            border-bottom: 1px dashed var(--border-color);
+            font-variant-numeric: tabular-nums;
+        }
+        .dd-stat-key { font-size: 9px; color: var(--text-dim); letter-spacing: 0.5px; }
+        .dd-stat-val { font-size: 12px; color: var(--text-primary); }
+        .dd-tags {
+            display: flex; gap: 6px; flex-wrap: wrap;
+            margin: 8px 0;
+        }
+        .dd-tag {
+            font-size: 9px; letter-spacing: 0.5px;
+            padding: 2px 6px;
+            border: 1px dashed var(--border-color);
+            color: var(--text-secondary);
+        }
+        .dd-tag.earnings {
+            color: var(--text-accent);
+            border-color: var(--text-accent);
+        }
+        .dd-desc {
+            font-size: 11px; color: var(--text-secondary);
+            line-height: 1.5;
+            max-width: 900px;
+            margin-top: 6px;
+        }
 
         .news-item {
             padding: 6px 0;
@@ -627,6 +769,32 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         </div>
     </div>
 
+    <div class="drilldown-overlay" id="drilldownOverlay" style="display:none;">
+        <div class="drilldown-backdrop" onclick="closeDrilldown()"></div>
+        <div class="drilldown-panel">
+            <div class="drilldown-header">
+                <div class="drilldown-title">
+                    <span class="drilldown-sym" id="ddSym"></span>
+                    <span class="drilldown-name" id="ddName"></span>
+                </div>
+                <button class="header-btn" onclick="closeDrilldown()">[× CLOSE]</button>
+            </div>
+            <div class="drilldown-body">
+                <div class="drilldown-price-row" id="ddPriceRow"></div>
+                <div class="drilldown-ranges" id="ddRanges"></div>
+                <div class="drilldown-chart" id="ddChart"></div>
+                <div class="drilldown-section">
+                    <div class="drilldown-section-title">FUNDAMENTALS</div>
+                    <div id="ddStats"></div>
+                </div>
+                <div class="drilldown-section">
+                    <div class="drilldown-section-title">RECENT NEWS</div>
+                    <div id="ddNews"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // ============================================================
         // CONSTANTS
@@ -704,6 +872,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         const quoteCache = {};   // { symbol: { price, change, changePercent, previousClose, ts, stale } }
         const newsCache  = {};   // { cacheKey: { articles, ts } }
         const symbolNameCache = {};  // { symbol: shortName }  from autocomplete
+        const fundamentalsCache = {};  // { symbol: { data, ts } }  15-min TTL
+        const chartCache = {};   // { "symbol|range": { closes, timestamps, ts } }
         let isRefreshing = false;
         let refreshTimerId = null;
         let autoCompleteAbort = null;
@@ -771,6 +941,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
         let currentProxy = 0;
 
+        // Some proxies (notably codetabs) return HTTP 200 with a short "Edge: Too Many Requests"
+        // body when rate-limited, which would otherwise pin that proxy as `currentProxy` and
+        // starve subsequent calls. Detect and reject those degenerate bodies before committing.
         async function fetchViaProxy(url, { parseJson = true, signal = null } = {}) {
             let lastErr = null;
             for (let attempt = 0; attempt < PROXIES.length; attempt++) {
@@ -779,7 +952,12 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 try {
                     const res = await fetch(proxied, { signal });
                     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                    const body = parseJson ? await res.json() : await res.text();
+                    const text = await res.text();
+                    if (!text) throw new Error('Empty body');
+                    if (text.length < 120 && /too many requests|rate ?limit|request timeout|upstream|unauthorized/i.test(text)) {
+                        throw new Error(`proxy short-body: ${text.slice(0, 80)}`);
+                    }
+                    const body = parseJson ? JSON.parse(text) : text;
                     currentProxy = proxyIdx;
                     return body;
                 } catch (err) {
@@ -792,14 +970,15 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
         async function fetchQuote(symbol) {
             const encoded = encodeURIComponent(symbol);
-            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1d&range=1d&includePrePost=false`;
+            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=5m&range=1d&includePrePost=false`;
             try {
                 const data = await fetchViaProxy(url);
                 const result = data?.chart?.result?.[0];
                 if (!result) return null;
                 const meta = result.meta || {};
                 const quote = result.indicators?.quote?.[0] || {};
-                const closeSeries = quote.close || [];
+                const closeSeries = (quote.close || []).filter(v => v != null);
+                const timestamps = result.timestamp || [];
                 const currentPrice = meta.regularMarketPrice ?? closeSeries[closeSeries.length - 1] ?? null;
                 const previousClose = meta.previousClose ?? meta.chartPreviousClose ?? null;
                 if (currentPrice == null || previousClose == null) return null;
@@ -813,6 +992,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     shortName: meta.shortName || meta.symbol || symbol,
                     marketState: meta.marketState || null,
                     currency: meta.currency || null,
+                    volume: meta.regularMarketVolume ?? null,
+                    dayHigh: meta.regularMarketDayHigh ?? null,
+                    dayLow: meta.regularMarketDayLow ?? null,
+                    yearHigh: meta.fiftyTwoWeekHigh ?? null,
+                    yearLow: meta.fiftyTwoWeekLow ?? null,
+                    closes: closeSeries,
+                    timestamps,
                 };
             } catch (err) {
                 return null;
@@ -864,6 +1050,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     shortName: symbol,
                     marketState: 'OPEN',
                     currency: 'USD',
+                    volume: null,
+                    dayHigh: null,
+                    dayLow: null,
+                    yearHigh: null,
+                    yearLow: null,
+                    closes: [],
+                    timestamps: [],
                 };
             } catch {
                 return null;
@@ -891,8 +1084,120 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     shortName: `${base}/${quote}`,
                     marketState: 'OPEN',
                     currency: quote,
+                    volume: null,
+                    dayHigh: null,
+                    dayLow: null,
+                    yearHigh: null,
+                    yearLow: null,
+                    closes: [],
+                    timestamps: [],
                 };
             } catch {
+                return null;
+            }
+        }
+
+        // Yahoo's v10/quoteSummary now requires a crumb/cookie we can't produce from the
+        // browser. fundamentals-timeseries + v1/search remain crumb-free and together cover
+        // the core Bloomberg fields. Some fields (beta, P/B, div yield, description, next
+        // earnings) aren't available through these endpoints and will display as "—".
+        async function fetchFundamentals(symbol) {
+            const cached = fundamentalsCache[symbol];
+            if (cached && Date.now() - cached.ts < 15 * 60_000) return cached.data;
+            const types = [
+                'trailingPeRatio', 'trailingForwardPeRatio',
+                'trailingMarketCap', 'trailingEnterpriseValue',
+                'trailingDilutedEPS', 'trailingPegRatio',
+                'trailingTotalRevenue', 'trailingNetIncomeCommonStockholders',
+                'trailingPriceSalesRatio', 'trailingEnterprisesValueRevenueRatio'
+            ].join(',');
+            const period1 = Math.floor(Date.now() / 1000) - 400 * 24 * 3600;
+            const period2 = Math.floor(Date.now() / 1000) + 7 * 24 * 3600;
+            const tsUrl = `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(symbol)}?symbol=${encodeURIComponent(symbol)}&type=${types}&period1=${period1}&period2=${period2}`;
+            const searchUrl = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(symbol)}&quotesCount=1&newsCount=0`;
+            try {
+                const [tsRes, searchRes] = await Promise.allSettled([
+                    fetchViaProxy(tsUrl),
+                    fetchViaProxy(searchUrl),
+                ]);
+                const metrics = {};
+                if (tsRes.status === 'fulfilled' && tsRes.value?.timeseries?.result) {
+                    for (const series of tsRes.value.timeseries.result) {
+                        const key = series?.meta?.type?.[0];
+                        if (!key) continue;
+                        const values = series[key];
+                        if (!Array.isArray(values) || !values.length) continue;
+                        const last = values[values.length - 1];
+                        const raw = last?.reportedValue?.raw;
+                        if (typeof raw === 'number' && Number.isFinite(raw)) metrics[key] = raw;
+                    }
+                }
+                let quote = null;
+                if (searchRes.status === 'fulfilled' && searchRes.value?.quotes?.length) {
+                    quote = searchRes.value.quotes.find(q => (q.symbol || '').toUpperCase() === symbol.toUpperCase()) || searchRes.value.quotes[0];
+                }
+                const hasAny = Object.keys(metrics).length > 0 || quote;
+                if (!hasAny) return null;
+                const out = {
+                    symbol,
+                    longName:    quote?.longname || quote?.shortname || symbol,
+                    exchange:    quote?.exchDisp || quote?.exchange || null,
+                    quoteType:   quote?.quoteType || null,
+                    peRatio:     metrics.trailingPeRatio ?? null,
+                    forwardPE:   metrics.trailingForwardPeRatio ?? null,
+                    marketCap:   metrics.trailingMarketCap ?? null,
+                    enterpriseValue: metrics.trailingEnterpriseValue ?? null,
+                    eps:         metrics.trailingDilutedEPS ?? null,
+                    pegRatio:    metrics.trailingPegRatio ?? null,
+                    revenue:     metrics.trailingTotalRevenue ?? null,
+                    netIncome:   metrics.trailingNetIncomeCommonStockholders ?? null,
+                    priceToSales: metrics.trailingPriceSalesRatio ?? null,
+                    evRevenue:   metrics.trailingEnterprisesValueRevenueRatio ?? null,
+                    // Fields not available from these endpoints (quoteSummary is crumb-locked):
+                    divYield: null, beta: null, priceToBook: null, revGrowth: null,
+                    description: null, nextEarningsDate: null, recommendation: null,
+                    sector:      quote?.sectorDisp || quote?.sector || null,
+                    industry:    quote?.industryDisp || quote?.industry || null,
+                };
+                fundamentalsCache[symbol] = { data: out, ts: Date.now() };
+                return out;
+            } catch (err) {
+                return null;
+            }
+        }
+
+        async function fetchChart(symbol, range, interval) {
+            const key = `${symbol}|${range}`;
+            const cached = chartCache[key];
+            const ttl = range === '1d' ? 60_000 : 5 * 60_000;
+            if (cached && Date.now() - cached.ts < ttl) return cached;
+            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false`;
+            try {
+                const data = await fetchViaProxy(url);
+                const r = data?.chart?.result?.[0];
+                if (!r) return null;
+                const closes = (r.indicators?.quote?.[0]?.close || []).map(v => v == null ? NaN : v);
+                const timestamps = r.timestamp || [];
+                // Align arrays: drop entries where close is NaN.
+                const cleanCloses = [];
+                const cleanTs = [];
+                for (let i = 0; i < closes.length; i++) {
+                    if (!Number.isNaN(closes[i])) {
+                        cleanCloses.push(closes[i]);
+                        cleanTs.push(timestamps[i]);
+                    }
+                }
+                const meta = r.meta || {};
+                const out = {
+                    closes: cleanCloses,
+                    timestamps: cleanTs,
+                    previousClose: meta.chartPreviousClose ?? meta.previousClose ?? null,
+                    currency: meta.currency || null,
+                    ts: Date.now(),
+                };
+                chartCache[key] = out;
+                return out;
+            } catch (err) {
                 return null;
             }
         }
@@ -1191,6 +1496,15 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         // RENDERING — QUOTE TABLE
         // ============================================================
 
+        function formatVolume(n) {
+            if (n == null || !Number.isFinite(n) || n <= 0) return null;
+            if (n >= 1e12) return (n / 1e12).toFixed(2) + 'T';
+            if (n >= 1e9)  return (n / 1e9).toFixed(2)  + 'B';
+            if (n >= 1e6)  return (n / 1e6).toFixed(1)  + 'M';
+            if (n >= 1e3)  return (n / 1e3).toFixed(1)  + 'K';
+            return Math.round(n).toLocaleString('en-US');
+        }
+
         function renderQuoteTable(panel) {
             const symbols = panel.symbols || [];
             if (!symbols.length) {
@@ -1200,10 +1514,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             const rows = symbols.map(sym => {
                 const q = quoteCache[sym];
                 if (!q) {
-                    return `<div class="quote-row nodata">
-                        <span class="quote-sym">${escapeHTML(sym)}</span>
-                        <span class="quote-price">--</span>
-                        <span class="quote-change">loading…</span>
+                    return `<div class="quote-row nodata" data-sym="${escapeAttr(sym)}" onclick="openDrilldown('${escapeAttr(sym)}')">
+                        <div class="quote-row-main">
+                            <span class="quote-sym">${escapeHTML(sym)}</span>
+                            <span class="quote-spark"></span>
+                            <span class="quote-price">--</span>
+                            <span class="quote-change">loading…</span>
+                        </div>
                     </div>`;
                 }
                 const cls = q.change > 0 ? 'positive' : q.change < 0 ? 'negative' : 'neutral';
@@ -1217,13 +1534,319 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const changeStr = priceFormat === 'yield'
                     ? `${sign}${q.change.toFixed(3)} (${pctSign}${q.changePercent.toFixed(2)}%)`
                     : `${sign}${formatPriceFor(priceFormat, q.change, true)} (${pctSign}${q.changePercent.toFixed(2)}%)`;
-                return `<div class="quote-row${staleCls}">
-                    <span class="quote-sym">${escapeHTML(sym)}${nameHTML}</span>
-                    <span class="quote-price">${priceStr}</span>
-                    <span class="quote-change ${cls}">${changeStr}</span>
+                const sparkHTML = renderSparkline(q.closes, q.change);
+                const metaHTML = renderQuoteMeta(q, priceFormat);
+                return `<div class="quote-row${staleCls}" data-sym="${escapeAttr(sym)}" onclick="openDrilldown('${escapeAttr(sym)}')">
+                    <div class="quote-row-main">
+                        <span class="quote-sym">${escapeHTML(sym)}${nameHTML}</span>
+                        <span class="quote-spark">${sparkHTML}</span>
+                        <span class="quote-price">${priceStr}</span>
+                        <span class="quote-change ${cls}">${changeStr}</span>
+                    </div>
+                    ${metaHTML ? `<div class="quote-row-meta">${metaHTML}</div>` : ''}
                 </div>`;
             }).join('');
             return rows;
+        }
+
+        function renderQuoteMeta(q, priceFormat) {
+            const parts = [];
+            const volStr = formatVolume(q.volume);
+            if (volStr && priceFormat !== 'yield' && priceFormat !== 'forex') {
+                parts.push(`VOL ${volStr}`);
+            }
+            if (q.dayHigh != null && q.dayLow != null && priceFormat !== 'yield') {
+                parts.push(`DAY ${formatPriceFor(priceFormat, q.dayLow)}–${formatPriceFor(priceFormat, q.dayHigh)}`);
+            }
+            if (q.yearHigh != null && q.yearLow != null) {
+                parts.push(`52W ${formatPriceFor(priceFormat, q.yearLow)}–${formatPriceFor(priceFormat, q.yearHigh)}`);
+            }
+            return parts.join(' · ');
+        }
+
+        function renderSparkline(closes, dayChange) {
+            if (!Array.isArray(closes) || closes.length < 2) return '';
+            // Downsample to 40 points max for a compact 64×20 px sparkline.
+            const pts = closes.length > 40
+                ? downsample(closes, 40)
+                : closes;
+            const min = Math.min(...pts);
+            const max = Math.max(...pts);
+            const range = max - min || 1;
+            const W = 64, H = 20, pad = 1;
+            const stepX = (W - pad * 2) / (pts.length - 1);
+            const coords = pts.map((v, i) => {
+                const x = (pad + i * stepX).toFixed(1);
+                const y = (H - pad - ((v - min) / range) * (H - pad * 2)).toFixed(1);
+                return `${x},${y}`;
+            }).join(' ');
+            const colorVar = dayChange > 0 ? 'var(--color-positive)'
+                           : dayChange < 0 ? 'var(--color-negative)'
+                           : 'var(--color-neutral)';
+            return `<svg class="spark" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" preserveAspectRatio="none" aria-hidden="true">
+                <polyline points="${coords}" fill="none" stroke="${colorVar}" stroke-width="1" vector-effect="non-scaling-stroke"/>
+            </svg>`;
+        }
+
+        function downsample(arr, targetLen) {
+            if (arr.length <= targetLen) return arr.slice();
+            const out = new Array(targetLen);
+            const step = (arr.length - 1) / (targetLen - 1);
+            for (let i = 0; i < targetLen; i++) out[i] = arr[Math.round(i * step)];
+            return out;
+        }
+
+        // ============================================================
+        // DRILLDOWN — big chart + fundamentals + per-ticker news
+        // ============================================================
+
+        let currentDrilldown = null;
+
+        const RANGE_INTERVALS = {
+            '1d':  '5m',
+            '5d':  '15m',
+            '1mo': '1d',
+            '3mo': '1d',
+            'ytd': '1d',
+            '1y':  '1wk',
+            '5y':  '1wk',
+        };
+
+        function priceFormatForSymbol(sym) {
+            if (sym.endsWith('=X')) return 'forex';
+            if (sym.startsWith('^') && (sym === '^TNX' || sym === '^TYX' || sym === '^IRX' || sym === '^FVX'))
+                return 'yield';
+            if (sym.startsWith('^')) return 'index';
+            return 'usd';
+        }
+
+        async function openDrilldown(symbol) {
+            const sym = (symbol || '').toUpperCase();
+            if (!sym) return;
+            currentDrilldown = { symbol: sym, range: '1d' };
+            const overlay = document.getElementById('drilldownOverlay');
+            overlay.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+
+            const q = quoteCache[sym];
+            document.getElementById('ddSym').textContent = sym;
+            document.getElementById('ddName').textContent =
+                q && q.shortName && q.shortName !== sym ? q.shortName : '';
+            renderDrilldownPrice(sym);
+            renderDrilldownRanges('1d');
+            document.getElementById('ddChart').innerHTML = '<div class="loading">LOADING CHART…</div>';
+            document.getElementById('ddStats').innerHTML = '<div class="loading">LOADING FUNDAMENTALS…</div>';
+            document.getElementById('ddNews').innerHTML = '<div class="loading">LOADING NEWS…</div>';
+
+            const cachedName = quoteCache[sym] && quoteCache[sym].shortName && quoteCache[sym].shortName !== sym
+                ? quoteCache[sym].shortName : null;
+            const newsQuery = cachedName ? `${cachedName} ${sym}` : `${sym} stock`;
+            const [chartRes, fundRes, newsRes] = await Promise.allSettled([
+                fetchChart(sym, '1d', RANGE_INTERVALS['1d']),
+                fetchFundamentals(sym),
+                fetchNewsRSS(newsQuery, 8),
+            ]);
+            if (!currentDrilldown || currentDrilldown.symbol !== sym) return;
+
+            if (chartRes.status === 'fulfilled' && chartRes.value) {
+                drawDrilldownChart(chartRes.value, sym);
+            } else {
+                document.getElementById('ddChart').innerHTML =
+                    '<div class="error-message">CHART UNAVAILABLE — PRESS R TO RETRY</div>';
+            }
+            if (fundRes.status === 'fulfilled' && fundRes.value) {
+                const f = fundRes.value;
+                const qc = quoteCache[sym];
+                if (qc) {
+                    if (f.fiftyTwoWeekHigh == null && qc.yearHigh != null) f.fiftyTwoWeekHigh = qc.yearHigh;
+                    if (f.fiftyTwoWeekLow  == null && qc.yearLow  != null) f.fiftyTwoWeekLow  = qc.yearLow;
+                }
+                document.getElementById('ddStats').innerHTML = renderDrilldownStats(f, sym);
+            } else {
+                const qc = quoteCache[sym];
+                if (qc && (qc.yearHigh != null || qc.yearLow != null)) {
+                    document.getElementById('ddStats').innerHTML = renderDrilldownStats({
+                        symbol: sym, fiftyTwoWeekHigh: qc.yearHigh ?? null, fiftyTwoWeekLow: qc.yearLow ?? null,
+                    }, sym);
+                } else {
+                    document.getElementById('ddStats').innerHTML =
+                        '<div class="error-message">FUNDAMENTALS UNAVAILABLE — PRESS R TO RETRY</div>';
+                }
+            }
+            if (newsRes.status === 'fulfilled' && Array.isArray(newsRes.value)) {
+                const articles = newsRes.value.slice(0, 5);
+                document.getElementById('ddNews').innerHTML = articles.length
+                    ? articles.map(a => `
+                        <div class="news-item">
+                            <div class="news-meta">${formatRelativeTime(a.publishedAt)} · ${escapeHTML(a.source)}</div>
+                            <div class="news-headline"><a href="${escapeAttr(a.url)}" target="_blank" rel="noopener">${escapeHTML(a.title)}</a></div>
+                        </div>
+                    `).join('')
+                    : '<div class="error-message">NO HEADLINES FOUND FOR THIS TICKER</div>';
+            } else {
+                document.getElementById('ddNews').innerHTML = '<div class="error-message">NEWS UNAVAILABLE</div>';
+            }
+        }
+
+        function closeDrilldown() {
+            currentDrilldown = null;
+            document.getElementById('drilldownOverlay').style.display = 'none';
+            document.body.style.overflow = '';
+        }
+
+        function renderDrilldownPrice(sym) {
+            const q = quoteCache[sym];
+            const el = document.getElementById('ddPriceRow');
+            if (!q) { el.innerHTML = '<span class="dd-price">--</span>'; return; }
+            const pf = priceFormatForSymbol(sym);
+            const cls = q.change > 0 ? 'positive' : q.change < 0 ? 'negative' : 'neutral';
+            const sign = q.change >= 0 ? '+' : '';
+            const pctSign = q.changePercent >= 0 ? '+' : '';
+            const changeStr = pf === 'yield'
+                ? `${sign}${q.change.toFixed(3)} (${pctSign}${q.changePercent.toFixed(2)}%)`
+                : `${sign}${formatPriceFor(pf, q.change, true)} (${pctSign}${q.changePercent.toFixed(2)}%)`;
+            el.innerHTML = `
+                <span class="dd-price">${formatPriceFor(pf, q.price)}</span>
+                <span class="dd-change ${cls}">${changeStr}</span>
+                ${q.marketState ? `<span class="dd-market-state">${escapeHTML(q.marketState)}</span>` : ''}
+            `;
+        }
+
+        function renderDrilldownRanges(active) {
+            const ranges = [
+                ['1d','1D'], ['5d','5D'], ['1mo','1M'], ['3mo','3M'],
+                ['ytd','YTD'], ['1y','1Y'], ['5y','5Y'],
+            ];
+            document.getElementById('ddRanges').innerHTML = ranges.map(([r, label]) =>
+                `<button class="chip${r === active ? ' active' : ''}" onclick="changeDrilldownRange('${r}')">${label}</button>`
+            ).join('');
+        }
+
+        async function changeDrilldownRange(range) {
+            if (!currentDrilldown) return;
+            currentDrilldown.range = range;
+            renderDrilldownRanges(range);
+            document.getElementById('ddChart').innerHTML = '<div class="loading">LOADING CHART…</div>';
+            const chart = await fetchChart(currentDrilldown.symbol, range, RANGE_INTERVALS[range] || '1d');
+            if (!currentDrilldown || currentDrilldown.range !== range) return;
+            if (chart) drawDrilldownChart(chart, currentDrilldown.symbol);
+            else document.getElementById('ddChart').innerHTML =
+                '<div class="error-message">CHART UNAVAILABLE FOR THIS RANGE</div>';
+        }
+
+        function drawDrilldownChart(chart, sym) {
+            const el = document.getElementById('ddChart');
+            const rect = el.getBoundingClientRect();
+            const w = Math.max(600, Math.floor(rect.width) - 4);
+            const h = 260;
+            el.innerHTML = renderChart({
+                closes: chart.closes,
+                timestamps: chart.timestamps,
+                width: w,
+                height: h,
+                priceFormat: priceFormatForSymbol(sym),
+                previousClose: currentDrilldown && currentDrilldown.range === '1d' ? chart.previousClose : null,
+            });
+        }
+
+        function renderChart({ closes, timestamps, width, height, priceFormat, previousClose }) {
+            if (!Array.isArray(closes) || closes.length < 2) {
+                return '<div class="error-message">NO CHART DATA</div>';
+            }
+            const pts = closes.length > 240 ? downsample(closes, 240) : closes.slice();
+            const ts = (timestamps && timestamps.length)
+                ? (timestamps.length > 240 ? downsample(timestamps, 240) : timestamps.slice())
+                : [];
+            const min = Math.min(...pts);
+            const max = Math.max(...pts);
+            const range = max - min || 1;
+            const padL = 60, padR = 12, padT = 14, padB = 22;
+            const innerW = width - padL - padR;
+            const innerH = height - padT - padB;
+            const stepX = innerW / (pts.length - 1);
+            const pf = priceFormat || 'usd';
+            const coords = pts.map((v, i) => {
+                const x = (padL + i * stepX).toFixed(1);
+                const y = (padT + innerH - ((v - min) / range) * innerH).toFixed(1);
+                return `${x},${y}`;
+            }).join(' ');
+            const first = pts[0], last = pts[pts.length - 1];
+            const stroke = last >= first ? 'var(--color-positive)' : 'var(--color-negative)';
+
+            const ticks = 5;
+            const yGrid = [];
+            for (let i = 0; i <= ticks; i++) {
+                const v = min + (range * i / ticks);
+                const y = padT + innerH - (innerH * i / ticks);
+                yGrid.push(
+                    `<line x1="${padL}" y1="${y}" x2="${width - padR}" y2="${y}" stroke="var(--border-color)" stroke-dasharray="2,3" stroke-width="0.5"/>`,
+                    `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" fill="var(--text-dim)" font-size="9" font-family="IBM Plex Mono, monospace">${formatPriceFor(pf, v)}</text>`
+                );
+            }
+            let xLabels = '';
+            if (ts.length >= 2) {
+                const fmtDate = t => t ? new Date(t * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+                const xs = [
+                    { x: padL,               t: ts[0] },
+                    { x: padL + innerW / 2,  t: ts[Math.floor(ts.length / 2)] },
+                    { x: padL + innerW,      t: ts[ts.length - 1] },
+                ];
+                xLabels = xs.map(l => `<text x="${l.x}" y="${height - 6}" text-anchor="middle" fill="var(--text-dim)" font-size="9" font-family="IBM Plex Mono, monospace">${fmtDate(l.t)}</text>`).join('');
+            }
+            let prevLine = '';
+            if (previousClose != null && previousClose >= min && previousClose <= max) {
+                const y = padT + innerH - ((previousClose - min) / range) * innerH;
+                prevLine = `<line x1="${padL}" y1="${y}" x2="${width - padR}" y2="${y}" stroke="var(--text-dim)" stroke-dasharray="4,3" stroke-width="0.5"/>`;
+            }
+            return `
+                <svg class="dd-chart" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" preserveAspectRatio="none">
+                    ${yGrid.join('')}
+                    ${prevLine}
+                    ${xLabels}
+                    <polyline points="${coords}" fill="none" stroke="${stroke}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+                </svg>
+            `;
+        }
+
+        function renderDrilldownStats(f, sym) {
+            const fmtN = n => (n == null || !Number.isFinite(n)) ? '—' : n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+            const fmtPct = n => n == null ? '—' : (n * 100).toFixed(2) + '%';
+            const fmtDate = d => d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+            const fmtMoney = n => {
+                if (n == null || !Number.isFinite(n)) return '—';
+                if (n >= 1e12) return '$' + (n / 1e12).toFixed(2) + 'T';
+                if (n >= 1e9)  return '$' + (n / 1e9).toFixed(2)  + 'B';
+                if (n >= 1e6)  return '$' + (n / 1e6).toFixed(2)  + 'M';
+                return '$' + fmtN(n);
+            };
+            const cells = [
+                ['P/E (TTM)', fmtN(f.peRatio)],
+                ['P/E (FWD)', fmtN(f.forwardPE)],
+                ['MKT CAP',   fmtMoney(f.marketCap)],
+                ['EPS (TTM)', fmtN(f.eps)],
+                ['PEG',       fmtN(f.pegRatio)],
+                ['P/S',       fmtN(f.priceToSales)],
+                ['EV',        fmtMoney(f.enterpriseValue)],
+                ['EV/REV',    fmtN(f.evRevenue)],
+                ['REV (TTM)', fmtMoney(f.revenue)],
+                ['NET INC',   fmtMoney(f.netIncome)],
+                ['52W HI',    f.fiftyTwoWeekHigh != null ? formatPriceFor('usd', f.fiftyTwoWeekHigh) : '—'],
+                ['52W LO',    f.fiftyTwoWeekLow  != null ? formatPriceFor('usd', f.fiftyTwoWeekLow)  : '—'],
+            ];
+            const statsGrid = cells.map(([k, v]) =>
+                `<div class="dd-stat"><div class="dd-stat-key">${k}</div><div class="dd-stat-val">${v}</div></div>`
+            ).join('');
+            const tags = [];
+            if (f.sector)    tags.push(`<span class="dd-tag">${escapeHTML(f.sector)}</span>`);
+            if (f.industry)  tags.push(`<span class="dd-tag">${escapeHTML(f.industry)}</span>`);
+            if (f.exchange)  tags.push(`<span class="dd-tag">${escapeHTML(f.exchange)}</span>`);
+            if (f.nextEarningsDate) tags.push(`<span class="dd-tag earnings">EARN ${fmtDate(f.nextEarningsDate)}</span>`);
+            if (f.recommendation) tags.push(`<span class="dd-tag">ANLYST ${escapeHTML(f.recommendation.toUpperCase())}</span>`);
+            return `
+                <div class="dd-stats-grid">${statsGrid}</div>
+                ${tags.length ? `<div class="dd-tags">${tags.join('')}</div>` : ''}
+                ${f.description ? `<div class="dd-desc">${escapeHTML(truncate(f.description, 500))}</div>` : ''}
+            `;
         }
 
         function formatPriceFor(format, value, isChange = false) {
@@ -1239,7 +1862,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         : value.toFixed(2);
                 case 'usd':
                 default:
-                    if (isChange) return Math.abs(value).toFixed(2);
+                    if (isChange) {
+                        const s = value < 0 ? '-' : '';
+                        return s + Math.abs(value).toFixed(2);
+                    }
                     if (Math.abs(value) >= 1000) {
                         return '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                     }
@@ -1786,8 +2412,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             if (e.key === 'h' || e.key === 'H') toggleHelp();
             else if (e.key === 'r' || e.key === 'R') refreshAll();
             else if (e.key === 'Escape') {
+                const dd = document.getElementById('drilldownOverlay');
                 const help = document.getElementById('helpPanel');
-                if (help.style.display !== 'none') help.style.display = 'none';
+                if (dd && dd.style.display !== 'none') closeDrilldown();
+                else if (help.style.display !== 'none') help.style.display = 'none';
                 else if (state.ui.openTray) togglePanelTray(state.ui.openTray);
             }
         });

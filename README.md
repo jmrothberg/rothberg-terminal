@@ -59,6 +59,23 @@ A single-file, browser-only clone of the Bloomberg Terminal — phosphor-green m
 | **CALENDAR** | Upcoming US economic releases | Computed (CPI, NFP, FOMC, PCE, GDP…) |
 | **MOVERS** | Derived top gainers/losers, VIX, sentiment | From loaded quotes |
 
+### Per-row extras
+
+- **1-day sparklines** — every quote row renders a tiny 64×20 SVG line chart built from the intraday close series. Green if the day is up, red if down.
+- **Extended quote columns** — VOL (with K/M/B suffix) plus DAY range and 52W range render under every price.
+
+### Click-a-row drilldown (`[SYM] <GO>`)
+
+Click any equity/index/crypto/commodity/forex/bond row to open a full-screen drilldown:
+
+- **Multi-range chart** — 1D · 5D · 1M · 3M · YTD · 1Y · 5Y, with a dashed `prev close` reference line on the 1D view
+- **Fundamentals grid** — P/E (TTM + Forward), Market Cap, EPS, PEG, P/S, Enterprise Value, EV/Rev, Revenue (TTM), Net Income (TTM), 52W High/Low
+- **Sector / industry / exchange tags**
+- **Per-ticker recent news** — 5 most recent Google News headlines for that company
+- **`[×]`** or **`ESC`** closes the drilldown
+
+Data sourced from Yahoo's crumb-free `fundamentals-timeseries` and `v1/search` endpoints (no key required).
+
 ### Interactions
 
 - **Click any panel title** → tray slides down in phosphor green
@@ -193,11 +210,12 @@ Whichever one succeeds becomes the preferred proxy for subsequent requests in th
 This is an honest list. The whole point of the project is that everything's free — and free things have costs of their own.
 
 1. **Public CORS proxies are rate-limited.** If `allorigins` is having a bad day, quote and news panels may show `DATA UNAVAILABLE`. The app tries multiple proxies in sequence and caches stale values (dimmed green) rather than showing `--`. Press `R` to retry.
-2. **Yahoo Finance can throttle aggressive clients.** If you spam the refresh button, you may see temporary blocks. The default 60s refresh interval is already well inside Yahoo's tolerance.
-3. **Crypto and forex always work.** CoinGecko and open.er-api.com are CORS-open, so those panels are immune to proxy issues.
-4. **Economic calendar uses heuristics.** CPI is assumed mid-month, NFP is first-Friday, FOMC dates are hardcoded for 2026. These rules are accurate most of the time but not authoritative — check the BLS / Fed sites for the final release schedule.
-5. **No options chains, no order entry, no intraday charts.** This is a dashboard, not a trading platform.
-6. **Single HTML file deliberately.** Simplicity > features. No bundler, no package.json to worry about, just open the file.
+2. **Fundamentals coverage is partial.** Yahoo locked `quoteSummary` behind a cookie+crumb token that a browser-only app can't produce, so the drilldown uses `fundamentals-timeseries` instead. That gives P/E, forward P/E, EPS, market cap, PEG, enterprise value, revenue, and net income — but not beta, dividend yield, price-to-book, next earnings date, or company description. Missing cells show `—`.
+3. **Yahoo Finance can throttle aggressive clients.** If you spam the refresh button, you may see temporary blocks. The default 60s refresh interval is already well inside Yahoo's tolerance.
+4. **Crypto and forex always work.** CoinGecko and open.er-api.com are CORS-open, so those panels are immune to proxy issues.
+5. **Economic calendar uses heuristics.** CPI is assumed mid-month, NFP is first-Friday, FOMC dates are hardcoded for 2026. These rules are accurate most of the time but not authoritative — check the BLS / Fed sites for the final release schedule.
+6. **No options chains, no order entry, no intraday charts.** This is a dashboard, not a trading platform.
+7. **Single HTML file deliberately.** Simplicity > features. No bundler, no package.json to worry about, just open the file.
 
 ---
 
