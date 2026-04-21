@@ -1,0 +1,1780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bloomberg Terminal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg-primary: #0a0a0a;
+            --bg-panel: #0d1117;
+            --bg-tray: #050a05;
+            --text-primary: #00ff00;
+            --text-secondary: #00cc00;
+            --text-dim: #008800;
+            --text-accent: #00ff41;
+            --color-negative: #ff4444;
+            --color-positive: #00ff00;
+            --color-neutral: #cccccc;
+            --border-color: #1a3a1a;
+            --border-bright: #00ff00;
+            --highlight: #00ff0033;
+            --stale: #557755;
+        }
+
+        ::selection { background: var(--text-primary); color: var(--bg-primary); }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-primary); }
+        ::-webkit-scrollbar-thumb { background: var(--border-color); }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+        body {
+            font-family: 'IBM Plex Mono', Consolas, Monaco, monospace;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 11px;
+            line-height: 1.4;
+            min-height: 100vh;
+            overflow-x: auto;
+        }
+
+        .terminal {
+            min-width: 1024px;
+            max-width: 1600px;
+            margin: 0 auto;
+            border: 2px solid var(--text-primary);
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            border-bottom: 2px solid var(--text-primary);
+            background: var(--bg-panel);
+        }
+
+        .header-title {
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 2px;
+        }
+
+        .header-subtitle {
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-time {
+            text-align: right;
+            font-size: 10px;
+            min-width: 110px;
+        }
+
+        .header-btn {
+            background: transparent;
+            border: 1px solid var(--text-primary);
+            color: var(--text-primary);
+            padding: 4px 8px;
+            font-family: inherit;
+            font-size: 10px;
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+
+        .header-btn:hover { background: var(--highlight); }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0;
+        }
+
+        .panel {
+            background: var(--bg-panel);
+            border: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            min-height: 200px;
+        }
+
+        .panel-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-accent);
+            padding: 8px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.1s;
+        }
+
+        .panel-title:hover { background: var(--highlight); }
+
+        .panel-title-left { display: flex; align-items: center; gap: 6px; }
+        .panel-title-left::before { content: "▸"; color: var(--text-accent); }
+
+        .panel-caret {
+            color: var(--text-secondary);
+            font-size: 10px;
+            transition: transform 0.2s;
+        }
+
+        .panel.tray-open .panel-caret { transform: rotate(180deg); }
+
+        .panel-tray {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.25s ease-out;
+            background: var(--bg-tray);
+            border-bottom: 1px dashed var(--border-color);
+        }
+
+        .panel.tray-open .panel-tray { max-height: 600px; overflow: visible; }
+
+        .tray-inner { padding: 10px; }
+
+        .tray-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .tray-row:last-child { margin-bottom: 0; }
+
+        .tray-label {
+            color: var(--text-secondary);
+            font-size: 10px;
+            min-width: 60px;
+            margin-right: 4px;
+        }
+
+        .chip {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 3px 8px;
+            font-family: inherit;
+            font-size: 10px;
+            cursor: pointer;
+            transition: all 0.1s;
+        }
+
+        .chip:hover {
+            border-color: var(--text-primary);
+            color: var(--text-primary);
+        }
+
+        .chip.active {
+            background: var(--text-primary);
+            border-color: var(--text-primary);
+            color: var(--bg-primary);
+            font-weight: 600;
+        }
+
+        .tray-input-wrap {
+            position: relative;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .tray-input {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 5px 8px;
+            font-family: inherit;
+            font-size: 11px;
+            width: 100%;
+        }
+
+        .tray-input:focus {
+            outline: none;
+            border-color: var(--text-primary);
+        }
+
+        .tray-input::placeholder { color: var(--text-dim); }
+
+        .autocomplete-list {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: var(--bg-panel);
+            border: 1px solid var(--text-primary);
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 100;
+            display: none;
+        }
+
+        .autocomplete-list.show { display: block; }
+
+        .autocomplete-item {
+            padding: 5px 8px;
+            cursor: pointer;
+            font-size: 10px;
+            border-bottom: 1px dashed var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .autocomplete-item:last-child { border-bottom: none; }
+        .autocomplete-item:hover,
+        .autocomplete-item.selected { background: var(--highlight); }
+
+        .autocomplete-item .sym {
+            font-weight: 600;
+            color: var(--text-primary);
+            min-width: 70px;
+        }
+
+        .autocomplete-item .name {
+            color: var(--text-secondary);
+            text-align: right;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .autocomplete-item .exch {
+            color: var(--text-dim);
+            font-size: 9px;
+        }
+
+        .tray-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .tray-tag {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            padding: 2px 6px;
+            font-size: 10px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .tray-tag-x {
+            cursor: pointer;
+            color: var(--color-negative);
+            font-weight: bold;
+            line-height: 1;
+        }
+
+        .tray-tag-x:hover { text-decoration: underline; }
+
+        .tray-msg {
+            font-size: 10px;
+            padding: 4px 0;
+        }
+        .tray-msg.err { color: var(--color-negative); }
+        .tray-msg.ok { color: var(--text-primary); }
+
+        .panel-content {
+            flex: 1;
+            padding: 8px;
+            overflow-y: auto;
+            max-height: 450px;
+        }
+
+        .quote-row {
+            display: grid;
+            grid-template-columns: 1fr auto auto;
+            gap: 8px;
+            padding: 3px 4px;
+            border-bottom: 1px dashed var(--border-color);
+            align-items: baseline;
+        }
+
+        .quote-row:last-child { border-bottom: none; }
+        .quote-row:hover { background: var(--highlight); }
+
+        .quote-sym {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .quote-sym .name {
+            color: var(--text-dim);
+            font-size: 9px;
+            margin-left: 6px;
+        }
+
+        .quote-price {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .quote-change {
+            text-align: right;
+            min-width: 130px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .quote-change.positive { color: var(--color-positive); }
+        .quote-change.negative { color: var(--color-negative); }
+        .quote-change.neutral { color: var(--color-neutral); }
+
+        .quote-row.stale .quote-price,
+        .quote-row.stale .quote-change { color: var(--stale); }
+
+        .quote-row.nodata .quote-price,
+        .quote-row.nodata .quote-change { color: var(--text-dim); }
+
+        .news-item {
+            padding: 6px 0;
+            border-bottom: 1px dashed var(--border-color);
+        }
+
+        .news-item:last-child { border-bottom: none; }
+
+        .news-meta {
+            font-size: 9px;
+            color: var(--text-secondary);
+            margin-bottom: 2px;
+        }
+
+        .news-headline {
+            font-size: 11px;
+            line-height: 1.3;
+        }
+
+        .news-headline a {
+            color: var(--text-primary);
+            text-decoration: none;
+        }
+
+        .news-headline a:hover { text-decoration: underline; }
+
+        .cal-item {
+            display: grid;
+            grid-template-columns: 110px 1fr;
+            gap: 8px;
+            padding: 4px 0;
+            border-bottom: 1px dashed var(--border-color);
+        }
+
+        .cal-item:last-child { border-bottom: none; }
+
+        .cal-date { color: var(--text-accent); font-variant-numeric: tabular-nums; }
+        .cal-event { color: var(--text-primary); }
+        .cal-source { color: var(--text-dim); font-size: 9px; }
+
+        .movers-block { margin-bottom: 10px; }
+        .movers-block:last-child { margin-bottom: 0; }
+
+        .movers-label {
+            color: var(--text-secondary);
+            font-size: 10px;
+            margin-bottom: 4px;
+        }
+
+        .movers-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .mover-pill {
+            font-size: 11px;
+            padding: 2px 6px;
+            border: 1px solid var(--border-color);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .mover-pill.positive { color: var(--color-positive); border-color: #1a5a1a; }
+        .mover-pill.negative { color: var(--color-negative); border-color: #5a1a1a; }
+
+        .sentiment-line {
+            display: flex;
+            gap: 24px;
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px dashed var(--border-color);
+            flex-wrap: wrap;
+        }
+
+        .sentiment-line .lbl { color: var(--text-secondary); margin-right: 6px; }
+        .sentiment-line .val { font-weight: 500; }
+
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 12px;
+            border-top: 2px solid var(--text-primary);
+            background: var(--bg-panel);
+            font-size: 10px;
+        }
+
+        .status-left { display: flex; align-items: center; gap: 16px; }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            background: var(--text-primary);
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.error { background: var(--color-negative); animation: none; }
+        .status-dot.warn { background: #ffaa00; animation: none; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .loading { animation: blink 1s infinite; color: var(--text-secondary); }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .error-message { color: var(--color-negative); font-size: 10px; padding: 8px 0; }
+        .no-data { color: var(--text-secondary); font-style: italic; }
+
+        .help-panel {
+            background: var(--bg-panel);
+            border-bottom: 2px solid var(--text-primary);
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .help-content { padding: 12px; }
+
+        .help-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 600;
+            color: var(--text-accent);
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .help-section { margin-bottom: 16px; }
+
+        .help-section-title {
+            color: var(--text-accent);
+            font-weight: 500;
+            margin-bottom: 6px;
+        }
+
+        .help-section pre {
+            background: var(--bg-primary);
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            font-size: 10px;
+            line-height: 1.5;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .refresh-btn {
+            background: transparent;
+            border: 1px solid var(--text-primary);
+            color: var(--text-primary);
+            padding: 4px 12px;
+            font-family: inherit;
+            font-size: 10px;
+            cursor: pointer;
+        }
+        .refresh-btn:hover { background: var(--highlight); }
+        .refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .flash-update { animation: flash 0.4s ease-out; }
+        @keyframes flash {
+            0% { background: var(--highlight); }
+            100% { background: transparent; }
+        }
+    </style>
+</head>
+<body>
+    <div class="terminal">
+        <div class="header">
+            <div>
+                <div class="header-title">BLOOMBERG TERMINAL v2.0</div>
+                <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
+            </div>
+            <div class="header-right">
+                <button class="header-btn" onclick="toggleHelp()">[HELP]</button>
+                <div class="header-time" id="headerTime">--:--:-- EST</div>
+            </div>
+        </div>
+
+        <div class="help-panel" id="helpPanel" style="display: none;">
+            <div class="help-content">
+                <div class="help-header">
+                    <span>HOW TO USE THIS TERMINAL</span>
+                    <button class="header-btn" onclick="toggleHelp()">[X]</button>
+                </div>
+
+                <div class="help-section">
+                    <div class="help-section-title">CHANGE A PANEL'S DATA TYPE</div>
+                    <pre>Click any panel title (e.g. "INDICES ▾") to pull down its tray.
+Click a panel-type chip: [STOCKS] [INDICES] [CRYPTO] [FOREX]
+[COMMODITIES] [TREASURIES] [NEWS] [CALENDAR] [MOVERS].
+The panel's title, content, and defaults switch instantly.</pre>
+                </div>
+
+                <div class="help-section">
+                    <div class="help-section-title">ADD A SYMBOL</div>
+                    <pre>In the panel tray, type a ticker (e.g. "TSLA") and press Enter.
+Autocomplete suggests matching tickers as you type.
+Click an [×] next to any symbol pill to remove it.
+
+Symbol formats:
+  Stocks      NVDA, AAPL, TSLA
+  Indices     ^GSPC (S&P 500), ^IXIC (NASDAQ), ^VIX
+  Crypto      BTC-USD, ETH-USD, SOL-USD
+  Forex       EURUSD=X, USDJPY=X, GBPUSD=X
+  Commodities CL=F (oil), GC=F (gold), SI=F (silver)
+  Treasuries  ^IRX (3M), ^FVX (5Y), ^TNX (10Y), ^TYX (30Y)</pre>
+                </div>
+
+                <div class="help-section">
+                    <div class="help-section-title">CHANGE NEWS TOPIC</div>
+                    <pre>On a NEWS panel, click a topic chip in the tray:
+Markets · Tech/AI · Semis · Crypto · Economy · Energy · Politics · World
+Or type a custom query and press Enter to make your own topic.</pre>
+                </div>
+
+                <div class="help-section">
+                    <div class="help-section-title">DATA SOURCES (ALL FREE / PUBLIC)</div>
+                    <pre>Quotes:       Yahoo Finance (via public CORS proxies)
+Crypto backup: CoinGecko public API
+Forex backup:  open.er-api.com
+Bonds backup:  US Treasury Fiscal Data API
+News:         Google News RSS (proxied)
+Calendar:     Computed from US economic release schedule
+Movers/VIX:   Derived locally from loaded quotes</pre>
+                </div>
+
+                <div class="help-section">
+                    <div class="help-section-title">KEYBOARD SHORTCUTS</div>
+                    <pre>R         Refresh all panels
+H         Toggle this help
+ESC       Close help / close open tray
+Enter     (in symbol input) add typed symbol
+Up/Down   (in symbol input) navigate autocomplete</pre>
+                </div>
+
+                <div class="help-section">
+                    <div class="help-section-title">TROUBLESHOOTING</div>
+                    <pre>If prices show DATA UNAVAILABLE: a public CORS proxy may be
+down. The app automatically tries multiple proxies in sequence.
+Stale values (dim green) mean the last-known cached price.
+Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-grid" id="mainGrid"></div>
+
+        <div class="status-bar">
+            <div class="status-left">
+                <div class="status-indicator">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span id="statusText">INITIALIZING</span>
+                </div>
+                <div id="lastUpdate">Last updated: --:--:--</div>
+            </div>
+            <div style="display:flex; gap:10px; align-items:center;">
+                <span id="marketStatus" style="color: var(--text-secondary);">MARKET: --</span>
+                <button class="refresh-btn" id="refreshBtn" onclick="refreshAll()">[REFRESH]</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================
+        // CONSTANTS
+        // ============================================================
+
+        const STORAGE_KEY = 'bloomberg_state_v2';
+        const LEGACY_KEYS = ['bloomberg_stocks', 'bloomberg_config', 'bloomberg_news_topic'];
+
+        // Ordered list of public CORS proxies. Each is tried in turn on failure.
+        // If all fail, quote panels show DATA UNAVAILABLE; crypto/forex panels
+        // still work because they fetch from CORS-open APIs directly.
+        const PROXIES = [
+            url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+            url => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`,
+            url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+        ];
+
+        const PANEL_TYPES = {
+            stocks:      { label: 'WATCHLIST',           usesSymbols: true,  usesNews: false, priceFormat: 'usd',   empty: 'NVDA, AAPL, TSLA…' },
+            indices:     { label: 'INDICES',             usesSymbols: true,  usesNews: false, priceFormat: 'index', empty: '^GSPC, ^IXIC, ^DJI…' },
+            crypto:      { label: 'CRYPTO',              usesSymbols: true,  usesNews: false, priceFormat: 'usd',   empty: 'BTC-USD, ETH-USD…' },
+            forex:       { label: 'FOREX',               usesSymbols: true,  usesNews: false, priceFormat: 'forex', empty: 'EURUSD=X, USDJPY=X…' },
+            commodities: { label: 'COMMODITIES',         usesSymbols: true,  usesNews: false, priceFormat: 'usd',   empty: 'CL=F, GC=F, SI=F…' },
+            bonds:       { label: 'TREASURIES',          usesSymbols: true,  usesNews: false, priceFormat: 'yield', empty: '^TNX, ^TYX…' },
+            news:        { label: 'NEWS',                usesSymbols: false, usesNews: true },
+            calendar:    { label: 'SCHEDULED RELEASES',  usesSymbols: false, usesNews: false },
+            movers:      { label: 'MOVERS & SENTIMENT',  usesSymbols: false, usesNews: false },
+        };
+
+        const PANEL_TYPE_ORDER = ['stocks','indices','crypto','forex','commodities','bonds','news','calendar','movers'];
+
+        const DEFAULT_SYMBOLS = {
+            stocks:      ['NVDA','MSFT','GOOGL','META','AVGO','CRM'],
+            indices:     ['^GSPC','^IXIC','^DJI','^SOX','^VIX','^RUT'],
+            crypto:      ['BTC-USD','ETH-USD','SOL-USD','DOGE-USD'],
+            forex:       ['EURUSD=X','USDJPY=X','GBPUSD=X','AUDUSD=X'],
+            commodities: ['CL=F','GC=F','SI=F','NG=F','HG=F'],
+            bonds:       ['^IRX','^FVX','^TNX','^TYX'],
+        };
+
+        const NEWS_TOPICS = {
+            market:   { label: 'Markets',    query: 'stock market today NYSE NASDAQ' },
+            tech:     { label: 'Tech/AI',    query: 'artificial intelligence technology stocks earnings' },
+            semi:     { label: 'Semis',      query: 'semiconductor chip industry NVIDIA TSMC ASML' },
+            crypto:   { label: 'Crypto',     query: 'bitcoin ethereum cryptocurrency' },
+            economy:  { label: 'Economy',    query: 'federal reserve inflation economy GDP jobs' },
+            energy:   { label: 'Energy',     query: 'oil gas energy OPEC crude' },
+            politics: { label: 'Politics',   query: 'markets policy regulation congress' },
+            world:    { label: 'World',      query: 'world markets global finance europe asia' },
+        };
+
+        // Known FOMC meeting dates for 2026 (publicly scheduled). Update annually.
+        const FOMC_2026 = ['2026-01-28','2026-03-18','2026-04-29','2026-06-17','2026-07-29','2026-09-16','2026-10-28','2026-12-09'];
+
+        const DEFAULT_STATE = {
+            version: 2,
+            panels: {
+                p1: { type: 'indices',     symbols: [...DEFAULT_SYMBOLS.indices] },
+                p2: { type: 'news',        topic: 'market' },
+                p3: { type: 'stocks',      symbols: [...DEFAULT_SYMBOLS.stocks] },
+                p4: { type: 'crypto',      symbols: [...DEFAULT_SYMBOLS.crypto] },
+                p5: { type: 'movers' },
+                p6: { type: 'commodities', symbols: [...DEFAULT_SYMBOLS.commodities] },
+            },
+            layout: ['p1','p2','p3','p4','p5','p6'],
+            config: { refreshInterval: 60000, newsCount: 10 },
+            ui: { openTray: null },
+        };
+
+        // ============================================================
+        // STATE
+        // ============================================================
+
+        let state = structuredClone(DEFAULT_STATE);
+        const quoteCache = {};   // { symbol: { price, change, changePercent, previousClose, ts, stale } }
+        const newsCache  = {};   // { cacheKey: { articles, ts } }
+        const symbolNameCache = {};  // { symbol: shortName }  from autocomplete
+        let isRefreshing = false;
+        let refreshTimerId = null;
+        let autoCompleteAbort = null;
+
+        function loadState() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (parsed && parsed.version === 2) {
+                        state = mergeState(DEFAULT_STATE, parsed);
+                        return;
+                    }
+                }
+                // Legacy migration
+                const legacyStocks = localStorage.getItem('bloomberg_stocks');
+                const legacyTopic  = localStorage.getItem('bloomberg_news_topic');
+                if (legacyStocks) {
+                    try {
+                        const s = JSON.parse(legacyStocks);
+                        const ai  = (s.ai  || []).map(x => x.symbol).filter(Boolean);
+                        const sem = (s.semiconductor || []).map(x => x.symbol).filter(Boolean);
+                        const idx = (s.indices || []).map(x => x.symbol).filter(Boolean);
+                        if (ai.length)  state.panels.p3.symbols = ai;
+                        if (sem.length) state.panels.p6 = { type: 'stocks', symbols: sem };
+                        if (idx.length) state.panels.p1.symbols = idx.map(normalizeLegacyIndex);
+                    } catch {}
+                }
+                if (legacyTopic && NEWS_TOPICS[legacyTopic]) {
+                    state.panels.p2.topic = legacyTopic === 'ai' ? 'tech' : (legacyTopic === 'semiconductor' ? 'semi' : legacyTopic);
+                }
+                saveState();
+                LEGACY_KEYS.forEach(k => localStorage.removeItem(k));
+            } catch (e) {
+                console.warn('loadState failed:', e);
+                state = structuredClone(DEFAULT_STATE);
+            }
+        }
+
+        function normalizeLegacyIndex(sym) {
+            // Legacy stored ETFs like SPY/QQQ; user can switch to ^GSPC if they like.
+            return sym;
+        }
+
+        function mergeState(base, saved) {
+            const merged = structuredClone(base);
+            if (saved.panels) merged.panels = saved.panels;
+            if (saved.layout) merged.layout = saved.layout;
+            if (saved.config) merged.config = { ...base.config, ...saved.config };
+            if (saved.ui)     merged.ui     = { ...base.ui, ...saved.ui };
+            return merged;
+        }
+
+        function saveState() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            } catch (e) {
+                console.warn('saveState failed:', e);
+            }
+        }
+
+        // ============================================================
+        // FETCHERS
+        // ============================================================
+
+        let currentProxy = 0;
+
+        async function fetchViaProxy(url, { parseJson = true, signal = null } = {}) {
+            let lastErr = null;
+            for (let attempt = 0; attempt < PROXIES.length; attempt++) {
+                const proxyIdx = (currentProxy + attempt) % PROXIES.length;
+                const proxied = PROXIES[proxyIdx](url);
+                try {
+                    const res = await fetch(proxied, { signal });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const body = parseJson ? await res.json() : await res.text();
+                    currentProxy = proxyIdx;
+                    return body;
+                } catch (err) {
+                    lastErr = err;
+                    if (err.name === 'AbortError') throw err;
+                }
+            }
+            throw lastErr || new Error('All proxies failed');
+        }
+
+        async function fetchQuote(symbol) {
+            const encoded = encodeURIComponent(symbol);
+            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1d&range=1d&includePrePost=false`;
+            try {
+                const data = await fetchViaProxy(url);
+                const result = data?.chart?.result?.[0];
+                if (!result) return null;
+                const meta = result.meta || {};
+                const quote = result.indicators?.quote?.[0] || {};
+                const closeSeries = quote.close || [];
+                const currentPrice = meta.regularMarketPrice ?? closeSeries[closeSeries.length - 1] ?? null;
+                const previousClose = meta.previousClose ?? meta.chartPreviousClose ?? null;
+                if (currentPrice == null || previousClose == null) return null;
+                const change = currentPrice - previousClose;
+                const changePercent = previousClose ? (change / previousClose) * 100 : 0;
+                return {
+                    price: currentPrice,
+                    change,
+                    changePercent,
+                    previousClose,
+                    shortName: meta.shortName || meta.symbol || symbol,
+                    marketState: meta.marketState || null,
+                    currency: meta.currency || null,
+                };
+            } catch (err) {
+                return null;
+            }
+        }
+
+        async function fetchQuoteWithFallback(symbol) {
+            // For crypto and forex we prefer CORS-open direct APIs (no proxy needed):
+            // CoinGecko and open.er-api.com both serve Access-Control-Allow-Origin: *.
+            // This keeps those panels working even when all CORS proxies are down.
+            if (symbol.endsWith('-USD')) {
+                const cg = await fetchCryptoFallback(symbol);
+                if (cg) return cg;
+                return await fetchQuote(symbol);
+            }
+            if (symbol.endsWith('=X')) {
+                const fx = await fetchForexFallback(symbol);
+                if (fx) return fx;
+                return await fetchQuote(symbol);
+            }
+            // Stocks, indices, commodities, bonds: Yahoo via proxy rotation.
+            return await fetchQuote(symbol);
+        }
+
+        async function fetchCryptoFallback(symbol) {
+            const CG_MAP = {
+                'BTC-USD': 'bitcoin', 'ETH-USD': 'ethereum', 'SOL-USD': 'solana',
+                'DOGE-USD': 'dogecoin', 'XRP-USD': 'ripple', 'ADA-USD': 'cardano',
+                'AVAX-USD': 'avalanche-2', 'DOT-USD': 'polkadot', 'MATIC-USD': 'matic-network',
+                'LTC-USD': 'litecoin', 'LINK-USD': 'chainlink', 'BCH-USD': 'bitcoin-cash',
+            };
+            const id = CG_MAP[symbol];
+            if (!id) return null;
+            try {
+                const url = `https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd&include_24hr_change=true`;
+                const res = await fetch(url);
+                if (!res.ok) return null;
+                const j = await res.json();
+                const row = j[id];
+                if (!row) return null;
+                const price = row.usd;
+                const changePct = row.usd_24h_change || 0;
+                const previousClose = price / (1 + changePct / 100);
+                return {
+                    price,
+                    change: price - previousClose,
+                    changePercent: changePct,
+                    previousClose,
+                    shortName: symbol,
+                    marketState: 'OPEN',
+                    currency: 'USD',
+                };
+            } catch {
+                return null;
+            }
+        }
+
+        async function fetchForexFallback(symbol) {
+            // Symbol like EURUSD=X -> base EUR, quote USD
+            const m = symbol.match(/^([A-Z]{3})([A-Z]{3})=X$/);
+            if (!m) return null;
+            const [, base, quote] = m;
+            try {
+                const url = `https://open.er-api.com/v6/latest/${base}`;
+                const res = await fetch(url);
+                if (!res.ok) return null;
+                const j = await res.json();
+                const rate = j.rates?.[quote];
+                if (!rate) return null;
+                // No 24h-change from this API; mark as neutral.
+                return {
+                    price: rate,
+                    change: 0,
+                    changePercent: 0,
+                    previousClose: rate,
+                    shortName: `${base}/${quote}`,
+                    marketState: 'OPEN',
+                    currency: quote,
+                };
+            } catch {
+                return null;
+            }
+        }
+
+        async function fetchNewsRSS(topic, count) {
+            const cacheKey = `${topic}|${count}`;
+            const cached = newsCache[cacheKey];
+            if (cached && Date.now() - cached.ts < 60_000) return cached.articles;
+
+            const topicObj = NEWS_TOPICS[topic] || { query: topic, label: topic };
+            const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(topicObj.query)}&hl=en-US&gl=US&ceid=US:en`;
+            try {
+                const xml = await fetchViaProxy(rssUrl, { parseJson: false });
+                const doc = new DOMParser().parseFromString(xml, 'text/xml');
+                const items = Array.from(doc.querySelectorAll('item')).slice(0, count);
+                const articles = items.map(it => {
+                    const title = it.querySelector('title')?.textContent?.trim() || '(untitled)';
+                    const link  = it.querySelector('link')?.textContent?.trim() || '#';
+                    const pub   = it.querySelector('pubDate')?.textContent?.trim();
+                    const src   = it.querySelector('source')?.textContent?.trim() || extractSource(title);
+                    return {
+                        title: cleanHeadline(title, src),
+                        source: src,
+                        publishedAt: pub ? new Date(pub).toISOString() : new Date().toISOString(),
+                        url: link,
+                    };
+                });
+                if (articles.length) {
+                    newsCache[cacheKey] = { articles, ts: Date.now() };
+                    return articles;
+                }
+                return [];
+            } catch (err) {
+                console.warn('RSS fetch failed:', err);
+                return [];
+            }
+        }
+
+        function extractSource(title) {
+            // Google News format: "Headline - Source"
+            const m = title.match(/ - ([^-]+)$/);
+            return m ? m[1].trim() : 'News';
+        }
+
+        function cleanHeadline(title, src) {
+            if (!src) return title;
+            const suffix = ` - ${src}`;
+            return title.endsWith(suffix) ? title.slice(0, -suffix.length) : title;
+        }
+
+        async function searchSymbols(query, { signal } = {}) {
+            if (!query || query.length < 1) return [];
+            const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=8&newsCount=0`;
+            try {
+                const data = await fetchViaProxy(url, { signal });
+                const quotes = data?.quotes || [];
+                return quotes
+                    .filter(q => q.symbol)
+                    .map(q => ({
+                        symbol: q.symbol,
+                        name: q.shortname || q.longname || q.symbol,
+                        exchange: q.exchDisp || q.exchange || '',
+                        type: q.quoteType || '',
+                    }));
+            } catch (err) {
+                if (err.name === 'AbortError') throw err;
+                return [];
+            }
+        }
+
+        // ============================================================
+        // QUOTE REFRESH ORCHESTRATION
+        // ============================================================
+
+        function collectAllSymbols() {
+            const set = new Set();
+            for (const pid of state.layout) {
+                const panel = state.panels[pid];
+                if (panel && PANEL_TYPES[panel.type]?.usesSymbols && Array.isArray(panel.symbols)) {
+                    panel.symbols.forEach(s => set.add(s));
+                }
+                if (panel?.type === 'movers') {
+                    // Movers needs all loaded stock-type symbols; no extra fetch needed.
+                }
+            }
+            // VIX is useful for movers/sentiment even if user didn't add it
+            if (!set.has('^VIX')) set.add('^VIX');
+            return Array.from(set);
+        }
+
+        async function refreshQuotes() {
+            const symbols = collectAllSymbols();
+            const batchSize = 4;
+            for (let i = 0; i < symbols.length; i += batchSize) {
+                const batch = symbols.slice(i, i + batchSize);
+                await Promise.all(batch.map(async sym => {
+                    const q = await fetchQuoteWithFallback(sym);
+                    if (q) {
+                        quoteCache[sym] = { ...q, ts: Date.now(), stale: false };
+                        if (q.shortName) symbolNameCache[sym] = q.shortName;
+                    } else if (quoteCache[sym]) {
+                        quoteCache[sym].stale = true;
+                    }
+                }));
+                if (i + batchSize < symbols.length) {
+                    await new Promise(r => setTimeout(r, 200));
+                }
+            }
+        }
+
+        async function refreshNewsPanels() {
+            const newsPanels = state.layout.filter(pid => state.panels[pid]?.type === 'news');
+            await Promise.all(newsPanels.map(async pid => {
+                const p = state.panels[pid];
+                const count = state.config.newsCount;
+                const articles = await fetchNewsRSS(p.topic || 'market', count);
+                p._articles = articles;
+            }));
+        }
+
+        async function refreshAll() {
+            if (isRefreshing) return;
+            isRefreshing = true;
+            const btn = document.getElementById('refreshBtn');
+            if (btn) btn.disabled = true;
+            updateStatus('FETCHING…', 'normal');
+            try {
+                await Promise.all([refreshQuotes(), refreshNewsPanels()]);
+                renderAllPanels();
+                updateStatus('CONNECTED', 'normal');
+                updateTimestamps();
+                updateMarketStatus();
+            } catch (err) {
+                console.error('refresh error:', err);
+                updateStatus('CONNECTION ERROR', 'error');
+                renderAllPanels();
+            } finally {
+                isRefreshing = false;
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        // ============================================================
+        // RENDERING — PANEL SHELL
+        // ============================================================
+
+        function renderAllPanels() {
+            const grid = document.getElementById('mainGrid');
+            grid.innerHTML = '';
+            for (const pid of state.layout) {
+                grid.appendChild(renderPanel(pid));
+            }
+            // Restore open tray, if any
+            if (state.ui.openTray && document.getElementById(`panel-${state.ui.openTray}`)) {
+                document.getElementById(`panel-${state.ui.openTray}`).classList.add('tray-open');
+            }
+        }
+
+        function renderPanel(pid) {
+            const panel = state.panels[pid];
+            if (!panel) {
+                const el = document.createElement('div');
+                el.className = 'panel';
+                el.textContent = `(missing panel ${pid})`;
+                return el;
+            }
+            const typeMeta = PANEL_TYPES[panel.type] || PANEL_TYPES.stocks;
+
+            const root = document.createElement('div');
+            root.className = 'panel';
+            root.id = `panel-${pid}`;
+
+            // Title
+            const title = document.createElement('div');
+            title.className = 'panel-title';
+            title.onclick = () => togglePanelTray(pid);
+            title.innerHTML = `
+                <span class="panel-title-left">${typeMeta.label}${renderTitleDetail(panel)}</span>
+                <span class="panel-caret">▾</span>
+            `;
+            root.appendChild(title);
+
+            // Tray
+            const tray = document.createElement('div');
+            tray.className = 'panel-tray';
+            tray.innerHTML = renderTrayHTML(pid);
+            root.appendChild(tray);
+
+            // Content
+            const content = document.createElement('div');
+            content.className = 'panel-content';
+            content.id = `content-${pid}`;
+            content.innerHTML = renderPanelContent(pid);
+            root.appendChild(content);
+
+            return root;
+        }
+
+        function renderTitleDetail(panel) {
+            if (panel.type === 'news' && panel.topic) {
+                const t = NEWS_TOPICS[panel.topic];
+                return ` <span style="color:var(--text-secondary);font-weight:400;">· ${t ? t.label : panel.topic}</span>`;
+            }
+            return '';
+        }
+
+        function renderTrayHTML(pid) {
+            const panel = state.panels[pid];
+            const typeMeta = PANEL_TYPES[panel.type];
+
+            const typeChips = PANEL_TYPE_ORDER.map(t => {
+                const active = t === panel.type ? ' active' : '';
+                return `<button class="chip${active}" onclick="changePanelType('${pid}','${t}')">${PANEL_TYPES[t].label}</button>`;
+            }).join('');
+
+            let symbolSection = '';
+            if (typeMeta?.usesSymbols) {
+                const tags = (panel.symbols || []).map(sym => `
+                    <span class="tray-tag">
+                        ${escapeHTML(sym)}
+                        <span class="tray-tag-x" onclick="removeSymbol('${pid}','${escapeAttr(sym)}')">[×]</span>
+                    </span>
+                `).join('');
+                symbolSection = `
+                    <div class="tray-row">
+                        <span class="tray-label">ADD</span>
+                        <div class="tray-input-wrap">
+                            <input type="text" class="tray-input" id="input-${pid}"
+                                   placeholder="${typeMeta.empty || 'type symbol + Enter'}"
+                                   oninput="onSymbolInput('${pid}', this.value)"
+                                   onkeydown="onSymbolKeydown(event, '${pid}')"
+                                   onblur="setTimeout(()=>hideAutocomplete('${pid}'),150)"
+                                   autocomplete="off">
+                            <div class="autocomplete-list" id="ac-${pid}"></div>
+                        </div>
+                    </div>
+                    <div class="tray-row">
+                        <span class="tray-label">LOADED</span>
+                        <div class="tray-tags" id="tags-${pid}">${tags || '<span class="no-data">(none)</span>'}</div>
+                    </div>
+                    <div class="tray-msg" id="msg-${pid}"></div>
+                `;
+            }
+
+            let topicSection = '';
+            if (typeMeta?.usesNews) {
+                const chips = Object.entries(NEWS_TOPICS).map(([k, v]) => {
+                    const active = k === panel.topic ? ' active' : '';
+                    return `<button class="chip${active}" onclick="setNewsTopic('${pid}','${k}')">${v.label}</button>`;
+                }).join('');
+                topicSection = `
+                    <div class="tray-row">
+                        <span class="tray-label">TOPIC</span>
+                        ${chips}
+                    </div>
+                    <div class="tray-row">
+                        <span class="tray-label">CUSTOM</span>
+                        <div class="tray-input-wrap">
+                            <input type="text" class="tray-input" placeholder="type custom search and press Enter"
+                                   onkeydown="if(event.key==='Enter'){setCustomNewsTopic('${pid}',this.value);this.value='';}">
+                        </div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="tray-inner">
+                    <div class="tray-row">
+                        <span class="tray-label">TYPE</span>
+                        ${typeChips}
+                    </div>
+                    ${symbolSection}
+                    ${topicSection}
+                </div>
+            `;
+        }
+
+        function renderPanelContent(pid) {
+            const panel = state.panels[pid];
+            switch (panel.type) {
+                case 'stocks':
+                case 'indices':
+                case 'crypto':
+                case 'forex':
+                case 'commodities':
+                case 'bonds':
+                    return renderQuoteTable(panel);
+                case 'news':     return renderNews(panel);
+                case 'calendar': return renderCalendar();
+                case 'movers':   return renderMovers();
+                default:         return `<div class="no-data">Unknown panel type: ${panel.type}</div>`;
+            }
+        }
+
+        // ============================================================
+        // RENDERING — QUOTE TABLE
+        // ============================================================
+
+        function renderQuoteTable(panel) {
+            const symbols = panel.symbols || [];
+            if (!symbols.length) {
+                return `<div class="no-data">No symbols. Click title and type one to add.</div>`;
+            }
+            const priceFormat = PANEL_TYPES[panel.type].priceFormat;
+            const rows = symbols.map(sym => {
+                const q = quoteCache[sym];
+                if (!q) {
+                    return `<div class="quote-row nodata">
+                        <span class="quote-sym">${escapeHTML(sym)}</span>
+                        <span class="quote-price">--</span>
+                        <span class="quote-change">loading…</span>
+                    </div>`;
+                }
+                const cls = q.change > 0 ? 'positive' : q.change < 0 ? 'negative' : 'neutral';
+                const staleCls = q.stale ? ' stale' : '';
+                const sign = q.change >= 0 ? '+' : '';
+                const pctSign = q.changePercent >= 0 ? '+' : '';
+                const priceStr = formatPriceFor(priceFormat, q.price);
+                const nameHTML = q.shortName && q.shortName !== sym
+                    ? `<span class="name">${escapeHTML(truncate(q.shortName, 22))}</span>`
+                    : '';
+                const changeStr = priceFormat === 'yield'
+                    ? `${sign}${q.change.toFixed(3)} (${pctSign}${q.changePercent.toFixed(2)}%)`
+                    : `${sign}${formatPriceFor(priceFormat, q.change, true)} (${pctSign}${q.changePercent.toFixed(2)}%)`;
+                return `<div class="quote-row${staleCls}">
+                    <span class="quote-sym">${escapeHTML(sym)}${nameHTML}</span>
+                    <span class="quote-price">${priceStr}</span>
+                    <span class="quote-change ${cls}">${changeStr}</span>
+                </div>`;
+            }).join('');
+            return rows;
+        }
+
+        function formatPriceFor(format, value, isChange = false) {
+            if (value == null || Number.isNaN(value)) return '--';
+            switch (format) {
+                case 'yield':
+                    return `${value.toFixed(3)}%`;
+                case 'forex':
+                    return value.toFixed(4);
+                case 'index':
+                    return Math.abs(value) >= 1000
+                        ? value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                        : value.toFixed(2);
+                case 'usd':
+                default:
+                    if (isChange) return Math.abs(value).toFixed(2);
+                    if (Math.abs(value) >= 1000) {
+                        return '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    }
+                    return '$' + value.toFixed(value < 1 ? 4 : 2);
+            }
+        }
+
+        // ============================================================
+        // RENDERING — NEWS
+        // ============================================================
+
+        function renderNews(panel) {
+            const articles = panel._articles;
+            if (!articles) return `<div class="loading">LOADING NEWS…</div>`;
+            if (!articles.length) {
+                return `<div class="error-message">NEWS FEED UNAVAILABLE — try another topic or [R] to refresh.</div>`;
+            }
+            return articles.map(a => `
+                <div class="news-item">
+                    <div class="news-meta">${formatRelativeTime(a.publishedAt)} · ${escapeHTML(a.source)}</div>
+                    <div class="news-headline">
+                        <a href="${escapeAttr(a.url)}" target="_blank" rel="noopener">${escapeHTML(a.title)}</a>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // ============================================================
+        // RENDERING — CALENDAR
+        // ============================================================
+
+        function renderCalendar() {
+            const events = computeUpcomingReleases(new Date(), 45);
+            if (!events.length) return `<div class="no-data">No upcoming releases computed.</div>`;
+            return events.map(ev => `
+                <div class="cal-item">
+                    <span class="cal-date">${ev.dateLabel}</span>
+                    <span>
+                        <div class="cal-event">${escapeHTML(ev.name)}</div>
+                        <div class="cal-source">${escapeHTML(ev.source)}</div>
+                    </span>
+                </div>
+            `).join('');
+        }
+
+        function computeUpcomingReleases(today, horizonDays) {
+            const out = [];
+            const horizon = new Date(today.getTime() + horizonDays * 86400000);
+            const months = [];
+            const cur = new Date(today.getFullYear(), today.getMonth(), 1);
+            for (let i = 0; i < 3; i++) {
+                months.push(new Date(cur.getFullYear(), cur.getMonth() + i, 1));
+            }
+
+            for (const m of months) {
+                // NFP — first Friday of month
+                const nfp = firstWeekdayOfMonth(m, 5);
+                out.push({ date: nfp, name: 'Nonfarm Payrolls (NFP)', source: 'BLS' });
+                // ISM Manufacturing — first business day
+                out.push({ date: firstBusinessDay(m), name: 'ISM Manufacturing PMI', source: 'ISM' });
+                // ISM Services — ~3rd business day
+                out.push({ date: nthBusinessDay(m, 3), name: 'ISM Services PMI', source: 'ISM' });
+                // CPI — roughly 2nd Tuesday to mid-month; use 12th of month
+                out.push({ date: new Date(m.getFullYear(), m.getMonth(), 12), name: 'Consumer Price Index (CPI)', source: 'BLS' });
+                // PPI — ~13th
+                out.push({ date: new Date(m.getFullYear(), m.getMonth(), 13), name: 'Producer Price Index (PPI)', source: 'BLS' });
+                // Retail Sales — ~15th
+                out.push({ date: new Date(m.getFullYear(), m.getMonth(), 15), name: 'Retail Sales', source: 'Census' });
+                // PCE — last Friday of month
+                out.push({ date: lastWeekdayOfMonth(m, 5), name: 'PCE Price Index', source: 'BEA' });
+                // GDP — advance estimate late in Jan/Apr/Jul/Oct (around 25th)
+                if ([0,3,6,9].includes(m.getMonth())) {
+                    out.push({ date: new Date(m.getFullYear(), m.getMonth(), 25), name: 'GDP (Advance Estimate)', source: 'BEA' });
+                }
+            }
+
+            // FOMC
+            for (const dstr of FOMC_2026) {
+                out.push({ date: new Date(dstr + 'T14:00:00'), name: 'FOMC Meeting / Rate Decision', source: 'Federal Reserve' });
+            }
+
+            return out
+                .filter(ev => ev.date >= stripTime(today) && ev.date <= horizon)
+                .sort((a, b) => a.date - b.date)
+                .slice(0, 14)
+                .map(ev => ({
+                    ...ev,
+                    dateLabel: formatCalDate(ev.date, today),
+                }));
+        }
+
+        function stripTime(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+
+        function firstWeekdayOfMonth(monthStart, targetDow) {
+            const d = new Date(monthStart.getFullYear(), monthStart.getMonth(), 1);
+            while (d.getDay() !== targetDow) d.setDate(d.getDate() + 1);
+            return d;
+        }
+
+        function lastWeekdayOfMonth(monthStart, targetDow) {
+            const d = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
+            while (d.getDay() !== targetDow) d.setDate(d.getDate() - 1);
+            return d;
+        }
+
+        function firstBusinessDay(monthStart) {
+            const d = new Date(monthStart.getFullYear(), monthStart.getMonth(), 1);
+            while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+            return d;
+        }
+
+        function nthBusinessDay(monthStart, n) {
+            const d = new Date(monthStart.getFullYear(), monthStart.getMonth(), 1);
+            let count = 0;
+            while (true) {
+                if (d.getDay() !== 0 && d.getDay() !== 6) {
+                    count++;
+                    if (count === n) return new Date(d);
+                }
+                d.setDate(d.getDate() + 1);
+            }
+        }
+
+        function formatCalDate(date, today) {
+            const diff = Math.floor((stripTime(date) - stripTime(today)) / 86400000);
+            const weekday = date.toLocaleDateString('en-US', { weekday: 'short' });
+            const md = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            if (diff === 0) return `TODAY · ${md}`;
+            if (diff === 1) return `TMRW · ${md}`;
+            if (diff < 7) return `${weekday.toUpperCase()} · ${md}`;
+            return `${weekday} ${md}`;
+        }
+
+        // ============================================================
+        // RENDERING — MOVERS & SENTIMENT
+        // ============================================================
+
+        function renderMovers() {
+            // Gather equity-like symbols from all stocks panels
+            const stockSymbols = new Set();
+            for (const pid of state.layout) {
+                const p = state.panels[pid];
+                if (p?.type === 'stocks' || p?.type === 'indices' || p?.type === 'commodities' || p?.type === 'crypto') {
+                    (p.symbols || []).forEach(s => stockSymbols.add(s));
+                }
+            }
+            const movers = [];
+            for (const sym of stockSymbols) {
+                const q = quoteCache[sym];
+                if (q && typeof q.changePercent === 'number') {
+                    movers.push({ sym, pct: q.changePercent });
+                }
+            }
+            movers.sort((a, b) => b.pct - a.pct);
+            const gainers = movers.filter(m => m.pct > 0).slice(0, 5);
+            const losers  = [...movers].filter(m => m.pct < 0).sort((a, b) => a.pct - b.pct).slice(0, 5);
+
+            const gainersHTML = gainers.length
+                ? gainers.map(m => `<span class="mover-pill positive">${escapeHTML(m.sym)} +${m.pct.toFixed(2)}%</span>`).join('')
+                : '<span class="no-data">none</span>';
+            const losersHTML = losers.length
+                ? losers.map(m => `<span class="mover-pill negative">${escapeHTML(m.sym)} ${m.pct.toFixed(2)}%</span>`).join('')
+                : '<span class="no-data">none</span>';
+
+            const vix = quoteCache['^VIX'];
+            const fg = computeFearGreed(vix, gainers.length, losers.length);
+
+            return `
+                <div class="movers-block">
+                    <div class="movers-label">TOP GAINERS</div>
+                    <div class="movers-list">${gainersHTML}</div>
+                </div>
+                <div class="movers-block">
+                    <div class="movers-label">TOP LOSERS</div>
+                    <div class="movers-list">${losersHTML}</div>
+                </div>
+                <div class="sentiment-line">
+                    <div><span class="lbl">VIX:</span><span class="val">${vix ? vix.price.toFixed(2) : '--'}</span></div>
+                    <div><span class="lbl">TREND:</span><span class="val">${fg.trend}</span></div>
+                    <div><span class="lbl">SENTIMENT:</span><span class="val">${fg.label} (${fg.score})</span></div>
+                </div>
+            `;
+        }
+
+        function computeFearGreed(vix, gainersCount, losersCount) {
+            // Simple 0-100 composite: low VIX + more gainers than losers = greed
+            let score = 50;
+            if (vix && typeof vix.price === 'number') {
+                if (vix.price < 14) score += 20;
+                else if (vix.price < 18) score += 10;
+                else if (vix.price > 25) score -= 20;
+                else if (vix.price > 20) score -= 10;
+            }
+            const netAdvance = gainersCount - losersCount;
+            score += Math.max(-15, Math.min(15, netAdvance * 3));
+            score = Math.max(0, Math.min(100, Math.round(score)));
+            const label =
+                score >= 75 ? 'Extreme Greed' :
+                score >= 60 ? 'Greed' :
+                score >= 45 ? 'Neutral' :
+                score >= 25 ? 'Fear' : 'Extreme Fear';
+            const trend =
+                netAdvance > 2 ? 'Advancing' :
+                netAdvance < -2 ? 'Declining' : 'Mixed';
+            return { score, label, trend };
+        }
+
+        // ============================================================
+        // PANEL TRAY HANDLERS
+        // ============================================================
+
+        function togglePanelTray(pid) {
+            const panelEl = document.getElementById(`panel-${pid}`);
+            if (!panelEl) return;
+            if (state.ui.openTray === pid) {
+                panelEl.classList.remove('tray-open');
+                state.ui.openTray = null;
+            } else {
+                if (state.ui.openTray) {
+                    document.getElementById(`panel-${state.ui.openTray}`)?.classList.remove('tray-open');
+                }
+                panelEl.classList.add('tray-open');
+                state.ui.openTray = pid;
+                const input = document.getElementById(`input-${pid}`);
+                if (input) setTimeout(() => input.focus(), 250);
+            }
+            saveState();
+        }
+
+        function changePanelType(pid, newType) {
+            const panel = state.panels[pid];
+            if (!panel || panel.type === newType) return;
+            panel.type = newType;
+            // Seed fresh defaults when switching to a type that uses symbols
+            if (PANEL_TYPES[newType].usesSymbols) {
+                panel.symbols = DEFAULT_SYMBOLS[newType] ? [...DEFAULT_SYMBOLS[newType]] : [];
+            } else {
+                delete panel.symbols;
+            }
+            if (newType === 'news' && !panel.topic) panel.topic = 'market';
+            if (newType !== 'news') delete panel.topic;
+            delete panel._articles;
+            saveState();
+            renderAllPanels();
+            refreshAll();
+        }
+
+        async function addSymbolToPanel(pid, raw) {
+            const panel = state.panels[pid];
+            const sym = (raw || '').trim().toUpperCase();
+            if (!sym) return;
+            if (panel.symbols.includes(sym)) {
+                showTrayMessage(pid, `${sym} already in list`, 'err');
+                return;
+            }
+            showTrayMessage(pid, `Validating ${sym}…`, 'ok');
+            const q = await fetchQuoteWithFallback(sym);
+            if (!q) {
+                showTrayMessage(pid, `No data for "${sym}". Check ticker and try again.`, 'err');
+                return;
+            }
+            quoteCache[sym] = { ...q, ts: Date.now(), stale: false };
+            if (q.shortName) symbolNameCache[sym] = q.shortName;
+            panel.symbols.push(sym);
+            saveState();
+            rerenderPanelBody(pid);
+            updateTraySymbols(pid);
+            showTrayMessage(pid, `Added ${sym} · ${q.shortName || ''}`, 'ok');
+            const input = document.getElementById(`input-${pid}`);
+            if (input) input.value = '';
+            hideAutocomplete(pid);
+        }
+
+        function removeSymbol(pid, sym) {
+            const panel = state.panels[pid];
+            panel.symbols = (panel.symbols || []).filter(s => s !== sym);
+            saveState();
+            rerenderPanelBody(pid);
+            updateTraySymbols(pid);
+        }
+
+        function updateTraySymbols(pid) {
+            const panel = state.panels[pid];
+            const tagsEl = document.getElementById(`tags-${pid}`);
+            if (!tagsEl) return;
+            const tags = (panel.symbols || []).map(sym => `
+                <span class="tray-tag">
+                    ${escapeHTML(sym)}
+                    <span class="tray-tag-x" onclick="removeSymbol('${pid}','${escapeAttr(sym)}')">[×]</span>
+                </span>
+            `).join('');
+            tagsEl.innerHTML = tags || '<span class="no-data">(none)</span>';
+        }
+
+        function rerenderPanelBody(pid) {
+            const content = document.getElementById(`content-${pid}`);
+            if (content) {
+                content.innerHTML = renderPanelContent(pid);
+                content.classList.remove('flash-update');
+                void content.offsetWidth;
+                content.classList.add('flash-update');
+            }
+            // If this is a stocks/indices panel, also update movers/sentiment panels since they derive
+            for (const otherPid of state.layout) {
+                if (otherPid === pid) continue;
+                if (state.panels[otherPid]?.type === 'movers') {
+                    const oc = document.getElementById(`content-${otherPid}`);
+                    if (oc) oc.innerHTML = renderPanelContent(otherPid);
+                }
+            }
+        }
+
+        function showTrayMessage(pid, msg, kind = 'ok') {
+            const el = document.getElementById(`msg-${pid}`);
+            if (!el) return;
+            el.textContent = msg;
+            el.className = `tray-msg ${kind}`;
+            if (kind === 'ok' && msg.startsWith('Added')) {
+                setTimeout(() => {
+                    if (el.textContent === msg) { el.textContent = ''; el.className = 'tray-msg'; }
+                }, 3000);
+            }
+        }
+
+        function setNewsTopic(pid, topic) {
+            const panel = state.panels[pid];
+            panel.topic = topic;
+            delete panel._articles;
+            saveState();
+            // Re-render this panel title + tray (topic chip active state) + body
+            renderAllPanels();
+            document.getElementById(`panel-${pid}`)?.classList.add('tray-open');
+            refreshNewsPanels().then(() => rerenderPanelBody(pid));
+        }
+
+        function setCustomNewsTopic(pid, query) {
+            const q = (query || '').trim();
+            if (!q) return;
+            const key = `custom_${Date.now()}`;
+            NEWS_TOPICS[key] = { label: q.length > 14 ? q.slice(0,14) + '…' : q, query: q };
+            setNewsTopic(pid, key);
+        }
+
+        // ============================================================
+        // AUTOCOMPLETE
+        // ============================================================
+
+        let autocompleteTimer = null;
+        let autocompleteState = {};  // per-pid: { items, selectedIdx }
+
+        function onSymbolInput(pid, value) {
+            clearTimeout(autocompleteTimer);
+            const q = (value || '').trim();
+            if (!q) { hideAutocomplete(pid); return; }
+            autocompleteTimer = setTimeout(() => runAutocomplete(pid, q), 200);
+        }
+
+        async function runAutocomplete(pid, query) {
+            if (autoCompleteAbort) autoCompleteAbort.abort();
+            autoCompleteAbort = new AbortController();
+            try {
+                const items = await searchSymbols(query, { signal: autoCompleteAbort.signal });
+                autocompleteState[pid] = { items, selectedIdx: -1 };
+                renderAutocomplete(pid);
+            } catch (err) {
+                if (err.name !== 'AbortError') console.warn('autocomplete error:', err);
+            }
+        }
+
+        function renderAutocomplete(pid) {
+            const el = document.getElementById(`ac-${pid}`);
+            if (!el) return;
+            const s = autocompleteState[pid];
+            if (!s || !s.items || !s.items.length) {
+                el.classList.remove('show');
+                el.innerHTML = '';
+                return;
+            }
+            el.innerHTML = s.items.map((it, i) => `
+                <div class="autocomplete-item${i === s.selectedIdx ? ' selected' : ''}"
+                     onmousedown="acPick('${pid}', ${i})">
+                    <span class="sym">${escapeHTML(it.symbol)}</span>
+                    <span class="name">${escapeHTML(truncate(it.name, 30))} <span class="exch">${escapeHTML(it.exchange)}</span></span>
+                </div>
+            `).join('');
+            el.classList.add('show');
+        }
+
+        function hideAutocomplete(pid) {
+            const el = document.getElementById(`ac-${pid}`);
+            if (el) el.classList.remove('show');
+        }
+
+        function acPick(pid, idx) {
+            const s = autocompleteState[pid];
+            if (!s || !s.items[idx]) return;
+            addSymbolToPanel(pid, s.items[idx].symbol);
+        }
+
+        function onSymbolKeydown(event, pid) {
+            const input = event.target;
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const s = autocompleteState[pid];
+                if (s && s.selectedIdx >= 0 && s.items[s.selectedIdx]) {
+                    addSymbolToPanel(pid, s.items[s.selectedIdx].symbol);
+                } else {
+                    addSymbolToPanel(pid, input.value);
+                }
+            } else if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                const s = autocompleteState[pid];
+                if (!s || !s.items?.length) return;
+                s.selectedIdx = Math.min(s.items.length - 1, s.selectedIdx + 1);
+                renderAutocomplete(pid);
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                const s = autocompleteState[pid];
+                if (!s) return;
+                s.selectedIdx = Math.max(-1, s.selectedIdx - 1);
+                renderAutocomplete(pid);
+            } else if (event.key === 'Escape') {
+                hideAutocomplete(pid);
+            }
+        }
+
+        // ============================================================
+        // UI CHROME (status, clock)
+        // ============================================================
+
+        function updateStatus(text, kind) {
+            const dot = document.getElementById('statusDot');
+            const lbl = document.getElementById('statusText');
+            dot.className = 'status-dot' + (kind === 'error' ? ' error' : kind === 'warn' ? ' warn' : '');
+            lbl.textContent = text;
+        }
+
+        function updateClock() {
+            const now = new Date();
+            const t = now.toLocaleTimeString('en-US', {
+                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+                timeZone: 'America/New_York',
+            });
+            document.getElementById('headerTime').textContent = `${t} EST`;
+        }
+
+        function updateTimestamps() {
+            const now = new Date();
+            const t = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+            document.getElementById('lastUpdate').textContent = `Last updated: ${t}`;
+        }
+
+        function updateMarketStatus() {
+            // Check marketState from the first available quote
+            let ms = null;
+            for (const sym of Object.keys(quoteCache)) {
+                if (quoteCache[sym]?.marketState) { ms = quoteCache[sym].marketState; break; }
+            }
+            const el = document.getElementById('marketStatus');
+            if (!el) return;
+            const map = {
+                'REGULAR':    'MARKET: OPEN',
+                'PRE':        'MARKET: PRE-OPEN',
+                'POST':       'MARKET: AFTER-HOURS',
+                'POSTPOST':   'MARKET: AFTER-HOURS',
+                'PREPRE':     'MARKET: PRE-OPEN',
+                'CLOSED':     'MARKET: CLOSED',
+            };
+            el.textContent = map[ms] || (ms ? `MARKET: ${ms}` : 'MARKET: --');
+        }
+
+        function toggleHelp() {
+            const el = document.getElementById('helpPanel');
+            el.style.display = el.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // ============================================================
+        // UTIL
+        // ============================================================
+
+        function escapeHTML(s) {
+            if (s == null) return '';
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function escapeAttr(s) {
+            return escapeHTML(s).replace(/`/g, '&#96;');
+        }
+
+        function truncate(s, n) {
+            if (!s) return '';
+            return s.length > n ? s.slice(0, n - 1) + '…' : s;
+        }
+
+        function formatRelativeTime(iso) {
+            try {
+                const then = new Date(iso);
+                const diffMs = Date.now() - then.getTime();
+                if (diffMs < 0) return 'just now';
+                const mins = Math.floor(diffMs / 60000);
+                if (mins < 1) return 'just now';
+                if (mins < 60) return `${mins}m ago`;
+                const hours = Math.floor(mins / 60);
+                if (hours < 24) return `${hours}h ago`;
+                const days = Math.floor(hours / 24);
+                if (days < 7) return `${days}d ago`;
+                return then.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            } catch {
+                return '';
+            }
+        }
+
+        // ============================================================
+        // INIT
+        // ============================================================
+
+        function startAutoRefresh() {
+            if (refreshTimerId) clearInterval(refreshTimerId);
+            refreshTimerId = setInterval(refreshAll, state.config.refreshInterval);
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT') return;
+            if (e.key === 'h' || e.key === 'H') toggleHelp();
+            else if (e.key === 'r' || e.key === 'R') refreshAll();
+            else if (e.key === 'Escape') {
+                const help = document.getElementById('helpPanel');
+                if (help.style.display !== 'none') help.style.display = 'none';
+                else if (state.ui.openTray) togglePanelTray(state.ui.openTray);
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadState();
+            renderAllPanels();
+            updateClock();
+            setInterval(updateClock, 1000);
+            refreshAll();
+            startAutoRefresh();
+        });
+    </script>
+</body>
+</html>
