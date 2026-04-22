@@ -1,4 +1,4 @@
-# JMR's Rothberg Terminal
+# Rothberg Terminal
 
 A single-file, browser-only clone of the Bloomberg Terminal — phosphor-green monospace, dense data panels, pull-down configuration — powered entirely by **free, public data sources**. No API keys. No backend. No build step.
 
