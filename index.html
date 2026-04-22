@@ -798,7 +798,8 @@
                     <div class="help-section-title">CHANGE A PANEL'S DATA TYPE</div>
                     <pre>Click any panel title (e.g. "INDICES ▾") to pull down its tray.
 Click a panel-type chip: [STOCKS] [INDICES] [CRYPTO] [FOREX]
-[COMMODITIES] [TREASURIES] [NEWS] [CALENDAR] [MOVERS].
+[COMMODITIES] [TREASURIES] [HEAT MAP] [NEWS] [PREDICTION
+MARKETS] [CALENDAR] [MOVERS].
 The panel's title, content, and defaults switch instantly.</pre>
                 </div>
 
@@ -818,6 +819,21 @@ Symbol formats:
                 </div>
 
                 <div class="help-section">
+                    <div class="help-section-title">CLICK-A-ROW DRILLDOWN</div>
+                    <pre>Click any equity/index/crypto/commodity/forex/bond row to
+open a full-screen drilldown:
+  - Multi-range chart (1D/5D/1M/3M/YTD/1Y/5Y) + prev close
+  - Fundamentals grid: P/E, Forward P/E, Mkt Cap, EPS, PEG,
+    P/S, EV, EV/Rev, Revenue, Net Income, 52W Hi/Lo
+  - Sector / industry / exchange tags
+  - 5 most recent Google News headlines for that company
+
+Click any HEAT MAP tile to open the same drilldown.
+Click any PREDICTION MARKETS row to open the market drilldown.
+Press ESC (or [×]) to close.</pre>
+                </div>
+
+                <div class="help-section">
                     <div class="help-section-title">CHANGE NEWS TOPIC</div>
                     <pre>On a NEWS panel, click a topic chip in the tray:
 Markets · Tech/AI · Semis · Crypto · Economy · Energy · Politics · World
@@ -825,11 +841,43 @@ Or type a custom query and press Enter to make your own topic.</pre>
                 </div>
 
                 <div class="help-section">
+                    <div class="help-section-title">PREDICTION MARKETS</div>
+                    <pre>Shows the top 20 active Polymarket markets ranked by 24h
+volume, with YES/NO probability bars, volume, and days left.
+Click a category chip to filter: All · Politics · Crypto ·
+Sports · Elections · Economics.
+
+Click any row for a full-screen drilldown:
+  - Probability history (1H/6H/1D/1W/1M/MAX) with dashed
+    50% reference line
+  - 24h vol, total vol, liquidity, best bid/ask, spread,
+    1W/1M change, resolution date, days left
+  - Full description + link to Polymarket
+  - Related news headlines seeded from the question</pre>
+                </div>
+
+                <div class="help-section">
+                    <div class="help-section-title">HEAT MAP</div>
+                    <pre>Bloomberg-HMAP-style squarified treemap of another panel's
+symbols — tiles sized by market cap, colored on a diverging
+red↔green ramp by today's % change, grouped into sector
+buckets (Technology, Energy, Health Care, …).
+
+In the tray, pick a SOURCE panel (any symbol panel) from the
+dropdown. First paint shows equal-weighted UNCLASSIFIED tiles
+within ~1s; fundamentals hydrate progressively (5 at a time),
+and the layout re-lays out as sectors resolve. Click any tile
+to open the ticker drilldown.</pre>
+                </div>
+
+                <div class="help-section">
                     <div class="help-section-title">DATA SOURCES (ALL FREE / PUBLIC)</div>
-                    <pre>Quotes:       Yahoo Finance (via public CORS proxies)
+                    <pre>Quotes:        Yahoo Finance (via public CORS proxies)
 Crypto backup: CoinGecko public API
 Forex backup:  open.er-api.com
 Bonds backup:  US Treasury Fiscal Data API
+Fundamentals: Yahoo fundamentals-timeseries + v1/search
+Prediction:   Polymarket Gamma (proxied) + CLOB (direct)
 News:         Google News RSS (proxied)
 Calendar:     Computed from US economic release schedule
 Movers/VIX:   Derived locally from loaded quotes</pre>
