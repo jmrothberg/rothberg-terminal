@@ -989,6 +989,30 @@ in price panels.</pre>
                 </div>
 
                 <div class="help-section">
+                    <div class="help-section-title">SCHEDULED RELEASES (CALENDAR)</div>
+                    <pre>The CALENDAR panel lists upcoming US data releases, straddling
+both macro and energy info-flow. Click a CATEGORY chip in the
+tray to filter:
+
+  ALL    — every release, interleaved by date (default)
+  MACRO  — BLS / Fed / ISM / BEA / Census releases:
+           NFP, CPI, PPI, Retail Sales, PCE, GDP, ISM, FOMC.
+  ENERGY — EIA releases, computed client-side (no key needed):
+           - WPSR (crude + gasoline + distillate stocks) —
+             every Wed 10:30 ET. Moves CL=F, RB=F ~2% on
+             surprise; XLE constituents track closely.
+           - Natural Gas Storage — every Thu 10:30 ET. Moves
+             NG=F 3-5% on winter/summer surprises.
+           - STEO (Short-Term Energy Outlook) — 2nd Tuesday
+             monthly. Absorbed the Drilling Productivity
+             Report in June 2024, so one entry covers both.
+
+Release dates are computed from naive weekday math. Federal
+holidays occasionally push a release by a day; CALENDAR
+accepts that approximation (same as it does for CPI/PPI).</pre>
+                </div>
+
+                <div class="help-section">
                     <div class="help-section-title">PREDICTION MARKETS</div>
                     <pre>Shows the top 20 active Polymarket markets ranked by 24h
 volume, with YES/NO probability bars, volume, and days left.
@@ -1094,7 +1118,7 @@ Bonds backup:  US Treasury Fiscal Data API
 Fundamentals: Yahoo fundamentals-timeseries + v1/search
 Prediction:   Polymarket Gamma (proxied) + CLOB (direct)
 News:         Google News RSS (proxied)
-Calendar:     Computed from US economic release schedule
+Calendar:     Computed from US release schedule (macro + EIA)
 Movers/VIX:   Derived locally from loaded quotes
 Seismic:      USGS earthquake.usgs.gov M4.5+ week feed (direct)
 Cyclones:     NOAA NHC CurrentStorms.json (proxied)</pre>
@@ -1221,7 +1245,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             semi:        { label: 'Semis',       query: 'semiconductor chip industry NVIDIA TSMC ASML' },
             crypto:      { label: 'Crypto',      query: 'bitcoin ethereum cryptocurrency' },
             economy:     { label: 'Economy',     query: 'federal reserve inflation economy GDP jobs' },
-            energy:      { label: 'Energy',      query: 'oil gas energy OPEC crude' },
+            energy:      { label: 'Energy',      query: 'crude oil OPEC natural gas refinery gasoline diesel WPSR EIA inventory' },
             politics:    { label: 'Politics',    query: 'markets policy regulation congress' },
             world:       { label: 'World',       query: 'world markets global finance europe asia' },
             chokepoints: { label: 'Chokepoints', query: 'Red Sea Suez Panama Canal Strait of Hormuz shipping disruption tanker' },
@@ -1246,6 +1270,12 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             { key: 'al',  label: 'Atlantic' },
             { key: 'ep',  label: 'E. Pacific' },
             { key: 'cp',  label: 'C. Pacific' },
+        ];
+
+        const CALENDAR_CATEGORIES = [
+            { key: 'all',    label: 'All' },
+            { key: 'macro',  label: 'Macro' },
+            { key: 'energy', label: 'Energy' },
         ];
 
         // Known FOMC meeting dates for 2026 (publicly scheduled). Update annually.
@@ -2172,6 +2202,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const b = STORM_BASINS.find(x => x.key === (panel.basin || 'all'));
                 return ` <span style="color:var(--text-secondary);font-weight:400;">· ${b ? b.label : panel.basin}</span>`;
             }
+            if (panel.type === 'calendar' && panel.category && panel.category !== 'all') {
+                const c = CALENDAR_CATEGORIES.find(x => x.key === panel.category);
+                return ` <span style="color:var(--text-secondary);font-weight:400;">· ${c ? c.label.toUpperCase() : panel.category.toUpperCase()}</span>`;
+            }
             return extTag;
         }
 
@@ -2292,6 +2326,22 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 `;
             }
 
+            let calendarSection = '';
+            if (panel.type === 'calendar') {
+                const current = panel.category || 'all';
+                const chips = CALENDAR_CATEGORIES.map(c => {
+                    const active = current === c.key ? ' active' : '';
+                    return `<button class="chip${active}" onclick="setCalendarCategory('${pid}','${c.key}')">${c.label}</button>`;
+                }).join('');
+                calendarSection = `
+                    <div class="tray-row">
+                        <span class="tray-label">CATEGORY</span>
+                        ${chips}
+                        <span class="tray-hint">Macro = BLS/Fed/BEA · Energy = EIA weeklies + STEO</span>
+                    </div>
+                `;
+            }
+
             let heatmapSection = '';
             if (panel.type === 'heatmap') {
                 // List live symbol panels first, then synthetic default-list
@@ -2350,6 +2400,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     ${predictionSection}
                     ${seismicSection}
                     ${stormsSection}
+                    ${calendarSection}
                     ${heatmapSection}
                     ${extHoursSection}
                 </div>
@@ -2367,7 +2418,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 case 'bonds':
                     return renderQuoteTable(panel);
                 case 'news':       return renderNews(panel);
-                case 'calendar':   return renderCalendar();
+                case 'calendar':   return renderCalendar(panel);
                 case 'movers':     return renderMovers();
                 case 'prediction': return renderPredictionPanel(panel);
                 case 'heatmap':    return renderHeatMap(panel);
@@ -3463,9 +3514,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         // RENDERING — CALENDAR
         // ============================================================
 
-        function renderCalendar() {
-            const events = computeUpcomingReleases(new Date(), 45);
-            if (!events.length) return `<div class="no-data">No upcoming releases computed.</div>`;
+        function renderCalendar(panel) {
+            const category = (panel && panel.category) || 'all';
+            const events = computeUpcomingReleases(new Date(), 45, category);
+            if (!events.length) {
+                const scope = category === 'all' ? '' : ` (${category.toUpperCase()})`;
+                return `<div class="no-data">No upcoming releases computed${scope}.</div>`;
+            }
             return events.map(ev => `
                 <div class="cal-item">
                     <span class="cal-date">${ev.dateLabel}</span>
@@ -3477,7 +3532,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             `).join('');
         }
 
-        function computeUpcomingReleases(today, horizonDays) {
+        function computeUpcomingReleases(today, horizonDays, category = 'all') {
             const out = [];
             const horizon = new Date(today.getTime() + horizonDays * 86400000);
             const months = [];
@@ -3489,38 +3544,72 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             for (const m of months) {
                 // NFP — first Friday of month
                 const nfp = firstWeekdayOfMonth(m, 5);
-                out.push({ date: nfp, name: 'Nonfarm Payrolls (NFP)', source: 'BLS' });
+                out.push({ date: nfp, name: 'Nonfarm Payrolls (NFP)', source: 'BLS', category: 'macro' });
                 // ISM Manufacturing — first business day
-                out.push({ date: firstBusinessDay(m), name: 'ISM Manufacturing PMI', source: 'ISM' });
+                out.push({ date: firstBusinessDay(m), name: 'ISM Manufacturing PMI', source: 'ISM', category: 'macro' });
                 // ISM Services — ~3rd business day
-                out.push({ date: nthBusinessDay(m, 3), name: 'ISM Services PMI', source: 'ISM' });
+                out.push({ date: nthBusinessDay(m, 3), name: 'ISM Services PMI', source: 'ISM', category: 'macro' });
                 // CPI — roughly 2nd Tuesday to mid-month; use 12th of month
-                out.push({ date: new Date(m.getFullYear(), m.getMonth(), 12), name: 'Consumer Price Index (CPI)', source: 'BLS' });
+                out.push({ date: new Date(m.getFullYear(), m.getMonth(), 12), name: 'Consumer Price Index (CPI)', source: 'BLS', category: 'macro' });
                 // PPI — ~13th
-                out.push({ date: new Date(m.getFullYear(), m.getMonth(), 13), name: 'Producer Price Index (PPI)', source: 'BLS' });
+                out.push({ date: new Date(m.getFullYear(), m.getMonth(), 13), name: 'Producer Price Index (PPI)', source: 'BLS', category: 'macro' });
                 // Retail Sales — ~15th
-                out.push({ date: new Date(m.getFullYear(), m.getMonth(), 15), name: 'Retail Sales', source: 'Census' });
+                out.push({ date: new Date(m.getFullYear(), m.getMonth(), 15), name: 'Retail Sales', source: 'Census', category: 'macro' });
                 // PCE — last Friday of month
-                out.push({ date: lastWeekdayOfMonth(m, 5), name: 'PCE Price Index', source: 'BEA' });
+                out.push({ date: lastWeekdayOfMonth(m, 5), name: 'PCE Price Index', source: 'BEA', category: 'macro' });
                 // GDP — advance estimate late in Jan/Apr/Jul/Oct (around 25th)
                 if ([0,3,6,9].includes(m.getMonth())) {
-                    out.push({ date: new Date(m.getFullYear(), m.getMonth(), 25), name: 'GDP (Advance Estimate)', source: 'BEA' });
+                    out.push({ date: new Date(m.getFullYear(), m.getMonth(), 25), name: 'GDP (Advance Estimate)', source: 'BEA', category: 'macro' });
                 }
+                // EIA Short-Term Energy Outlook — 2nd Tuesday of month (absorbed the
+                // Drilling Productivity Report in June 2024, so one entry covers both).
+                out.push({ date: nthWeekdayOfMonth(m, 2, 2), name: 'EIA Short-Term Energy Outlook (STEO)', source: 'EIA', category: 'energy' });
             }
 
             // FOMC
             for (const dstr of FOMC_2026) {
-                out.push({ date: new Date(dstr + 'T14:00:00'), name: 'FOMC Meeting / Rate Decision', source: 'Federal Reserve' });
+                out.push({ date: new Date(dstr + 'T14:00:00'), name: 'FOMC Meeting / Rate Decision', source: 'Federal Reserve', category: 'macro' });
+            }
+
+            // Weekly EIA releases — naive-date schedule. Holiday weeks shift a day
+            // in reality; the CALENDAR accepts the same approximation for CPI/PPI.
+            //   WPSR: every Wed 10:30 ET — moves CL=F, RB=F on surprise
+            //   Nat Gas Storage: every Thu 10:30 ET — moves NG=F on surprise
+            const start = stripTime(today);
+            for (let d = new Date(start); d <= horizon; d.setDate(d.getDate() + 1)) {
+                if (d.getDay() === 3) {
+                    out.push({
+                        date: new Date(d),
+                        name: 'EIA Weekly Petroleum Status (Crude/Gasoline Stocks)',
+                        source: 'EIA',
+                        category: 'energy',
+                    });
+                } else if (d.getDay() === 4) {
+                    out.push({
+                        date: new Date(d),
+                        name: 'EIA Weekly Natural Gas Storage',
+                        source: 'EIA',
+                        category: 'energy',
+                    });
+                }
             }
 
             return out
                 .filter(ev => ev.date >= stripTime(today) && ev.date <= horizon)
+                .filter(ev => category === 'all' || ev.category === category)
                 .sort((a, b) => a.date - b.date)
-                .slice(0, 14)
+                .slice(0, 20)
                 .map(ev => ({
                     ...ev,
                     dateLabel: formatCalDate(ev.date, today),
                 }));
+        }
+
+        function nthWeekdayOfMonth(monthStart, n, targetDow) {
+            const d = new Date(monthStart.getFullYear(), monthStart.getMonth(), 1);
+            while (d.getDay() !== targetDow) d.setDate(d.getDate() + 1);
+            d.setDate(d.getDate() + 7 * (n - 1));
+            return d;
         }
 
         function stripTime(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
@@ -3726,6 +3815,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 if (panel.basin) panel.memory.storms = { basin: panel.basin };
                 delete panel.basin;
             }
+            if (newType === 'calendar') {
+                const mem = panel.memory.calendar;
+                panel.category = mem?.category || panel.category || 'all';
+            } else {
+                if (panel.category) panel.memory.calendar = { category: panel.category };
+                delete panel.category;
+            }
             // Extended-hours: restore remembered toggle for the new type (if any),
             // or strip the flag when the new type doesn't support it.
             if (PANEL_TYPES[newType].supportsExtendedHours) {
@@ -3779,6 +3875,16 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             if (!panel || panel.type !== 'storms') return;
             if (panel.basin === basin) return;
             panel.basin = basin;
+            saveState();
+            renderAllPanels();
+        }
+
+        function setCalendarCategory(pid, category) {
+            const panel = state.panels[pid];
+            if (!panel || panel.type !== 'calendar') return;
+            const valid = CALENDAR_CATEGORIES.some(c => c.key === category);
+            if (!valid || panel.category === category) return;
+            panel.category = category;
             saveState();
             renderAllPanels();
         }

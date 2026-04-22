@@ -50,7 +50,7 @@ A single-file, browser-only clone of the Bloomberg Terminal — phosphor-green m
 Every panel type sorts into one of four buckets, and that's the discipline:
 
 1. **Price instruments** — `STOCKS`, `INDICES`, `CRYPTO`, `FOREX`, `COMMODITIES`, `TREASURIES`. Structured numeric quotes.
-2. **Information flow** — `NEWS`, `CALENDAR`, `MOVERS`, `PREDICTION MARKETS`. Narrative + schedule + probabilistic risk.
+2. **Information flow** — `NEWS`, `CALENDAR`, `MOVERS`, `PREDICTION MARKETS`. Narrative + schedule + probabilistic risk. `CALENDAR` straddles macro and energy — a `Macro / Energy / All` chip in the tray filters between BLS / Fed / BEA releases and EIA weeklies + STEO.
 3. **Visualization** — `HEAT MAP`. Sector-weighted treemap over another panel's symbols.
 4. **Leading-indicator risk signals** — `SEISMIC EVENTS`, `TROPICAL CYCLONES`. Physical-world events, structured as lat/lon/magnitude/category, that hit the feed before the news cycle prices them in.
 
@@ -67,7 +67,7 @@ The rules for adding more panel types: free CORS-friendly API, threshold that ma
 | **COMMODITIES** | Futures contracts | `CL=F GC=F SI=F NG=F HG=F` |
 | **TREASURIES** | US bond yields | `^IRX ^FVX ^TNX ^TYX` |
 | **NEWS** | Financial headlines by topic | Markets · Tech/AI · Semis · Crypto · Economy · Energy · Politics · World · Chokepoints + custom |
-| **CALENDAR** | Upcoming US economic releases | Computed (CPI, NFP, FOMC, PCE, GDP…) |
+| **CALENDAR** | Upcoming US releases (macro + energy) with a `Macro / Energy / All` filter | Computed (CPI, NFP, FOMC, PCE, GDP + EIA WPSR / Nat Gas Storage / STEO) |
 | **MOVERS** | Derived top gainers/losers, VIX, sentiment | From loaded quotes |
 | **PREDICTION MARKETS** | Live Polymarket markets ranked by 24h volume | Filter: All · Politics · Crypto · Sports · Elections · Economics |
 | **HEAT MAP** | Bloomberg-HMAP-style sector-weighted treemap | Source: any symbol panel |
@@ -127,6 +127,16 @@ Two panel types surface structured, real-world events that move markets before t
 Complementing the structured feeds above, `NEWS` gains a **Chokepoints** topic preset — a curated Google News query for shipping / supply-chain disruption (Red Sea, Suez, Panama, Strait of Hormuz, tanker incidents). Ripples into oil (`CL=F`), nat-gas (`NG=F`), container shippers, and the dry-bulk ETF (`BDRY`) before the move shows in price panels. No new infrastructure — rides on the existing news engine.
 
 Both structured feeds refresh on the same 60s tick as quotes and news.
+
+### Energy releases (EIA — calendar-only, no API key)
+
+`CALENDAR` panels gain a `Macro · Energy · All` chip filter in the tray. The `Energy` view lists upcoming EIA releases computed client-side — no API key, no registration:
+
+- **Weekly Petroleum Status Report (WPSR)** — every Wednesday 10:30 ET. Crude + gasoline + distillate stocks. Moves `CL=F` and `RB=F` ~2% on surprise; `XLE` constituents track closely.
+- **Weekly Natural Gas Storage** — every Thursday 10:30 ET. Working gas in underground storage. Moves `NG=F` 3–5% on winter / summer surprises.
+- **Short-Term Energy Outlook (STEO)** — 2nd Tuesday monthly. Absorbed the Drilling Productivity Report in June 2024, so one entry covers both.
+
+Live EIA data (inventory levels, storage volumes, retail prices) is **explicitly not wired** because the v2 API requires a per-user key, which would break the terminal's no-keys promise. The calendar tells you *when* the release is coming; pair it with the broadened `Energy` news preset (which now matches `WPSR · refinery · EIA · inventory` as well as the baseline oil/gas query) for headlines that contextualize the number.
 
 ### Extended hours (pre-market / after-hours)
 
@@ -217,7 +227,8 @@ Every number on the screen is from one of these free, public sources. No API key
 | Stocks / Indices / Commodities / Bonds | [Yahoo Finance chart endpoint](https://query1.finance.yahoo.com/v8/finance/chart/) | Proxy rotation: allorigins → codetabs → corsproxy | Yahoo has no CORS header, so a public proxy is needed |
 | Ticker search / autocomplete | Yahoo Finance search endpoint (via proxy) | — | |
 | News | [Google News RSS](https://news.google.com/rss/search) (via proxy) | — | RSS parsed with `DOMParser` |
-| Economic calendar | Computed from US release schedule | — | CPI, NFP, FOMC 2026, PCE, GDP etc. derived from date math + known FOMC dates |
+| Economic calendar (macro) | Computed from US release schedule | — | CPI, NFP, FOMC 2026, PCE, GDP etc. derived from date math + known FOMC dates |
+| Energy calendar | Computed from EIA release schedule | — | WPSR every Wed 10:30 ET, Natural Gas Storage every Thu 10:30 ET, STEO 2nd Tuesday monthly. No API key — dates only. |
 | Movers / VIX / Fear-Greed | Derived locally from loaded quotes | — | No network call — free reduction |
 | Prediction markets list | [Polymarket Gamma API](https://docs.polymarket.com/api-reference/introduction) (via proxy) | — | Gamma has no CORS header; same proxy rotation as Yahoo |
 | Prediction history chart | [Polymarket CLOB](https://docs.polymarket.com/api-reference/clob) `prices-history` | — | CLOB is CORS-open — direct fetch, no proxy |
