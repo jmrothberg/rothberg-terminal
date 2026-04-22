@@ -45,6 +45,17 @@ A single-file, browser-only clone of the Bloomberg Terminal — phosphor-green m
 
 ## Features
 
+### Design — four buckets
+
+Every panel type sorts into one of four buckets, and that's the discipline:
+
+1. **Price instruments** — `STOCKS`, `INDICES`, `CRYPTO`, `FOREX`, `COMMODITIES`, `TREASURIES`. Structured numeric quotes.
+2. **Information flow** — `NEWS`, `CALENDAR`, `MOVERS`, `PREDICTION MARKETS`. Narrative + schedule + probabilistic risk.
+3. **Visualization** — `HEAT MAP`. Sector-weighted treemap over another panel's symbols.
+4. **Leading-indicator risk signals** — `SEISMIC EVENTS`, `TROPICAL CYCLONES`. Physical-world events, structured as lat/lon/magnitude/category, that hit the feed before the news cycle prices them in.
+
+The rules for adding more panel types: free CORS-friendly API, threshold that maps to a tradeable instrument, fits the existing list-with-drilldown idiom. That's why there's no flights / nuclear / cyber-KEV / elections firehose — the signal/noise ratio doesn't survive contact with a trading UI.
+
 ### Thirteen panel types — reassign any panel to any type
 
 | Type | What it shows | Default symbols |
@@ -55,7 +66,7 @@ A single-file, browser-only clone of the Bloomberg Terminal — phosphor-green m
 | **FOREX** | Currency pairs | `EURUSD=X USDJPY=X GBPUSD=X AUDUSD=X` |
 | **COMMODITIES** | Futures contracts | `CL=F GC=F SI=F NG=F HG=F` |
 | **TREASURIES** | US bond yields | `^IRX ^FVX ^TNX ^TYX` |
-| **NEWS** | Financial headlines by topic | Markets · Tech/AI · Semis · Crypto · Economy · Energy · Politics · World + custom |
+| **NEWS** | Financial headlines by topic | Markets · Tech/AI · Semis · Crypto · Economy · Energy · Politics · World · Chokepoints + custom |
 | **CALENDAR** | Upcoming US economic releases | Computed (CPI, NFP, FOMC, PCE, GDP…) |
 | **MOVERS** | Derived top gainers/losers, VIX, sentiment | From loaded quotes |
 | **PREDICTION MARKETS** | Live Polymarket markets ranked by 24h volume | Filter: All · Politics · Crypto · Sports · Elections · Economics |
@@ -95,12 +106,27 @@ The `HEAT MAP` panel renders a squarified treemap of another panel's symbols —
 
 ### Physical-world risk feeds (seismic + tropical cyclones)
 
-Two panel types surface structured, real-world events that move markets before the news cycle prices them in:
+Two panel types surface structured, real-world events that move markets before the news cycle prices them in. They render in the same list-with-drilldown shape as `NEWS`, auto-refresh on the same tick as quotes, and drop into the existing grid without any UI rethink.
 
-- **SEISMIC EVENTS** — USGS M4.5+ worldwide feed, last 7 days. Magnitude threshold chip (`M4.5` / `M5` / `M5.5` / `M6` / `M7`) filters the list. Each row is color-coded by severity — dim for sub-5, green for moderate, red for M6+, red-filled for M7+. Rows show depth in km, a `TSUNAMI` tag when USGS flags one, and link to the event's USGS detail page. Why it matters: a M6+ near Hsinchu, Kyushu, Santiago, or the Gulf Coast can move TSM, ASML, autos, copper miners, and insurers before the headline lands.
-- **TROPICAL CYCLONES** — NOAA National Hurricane Center active-storms feed. Basin chip (`Atlantic` / `East Pacific` / `Central Pacific` / `All`). Each row shows the Saffir-Simpson category derived from 1-minute sustained wind (or `TD` / `TS` for sub-hurricane systems), wind speed in mph, central pressure in mb, and links to the NHC public advisory. Why it matters: Gulf hurricanes drive nat-gas and gasoline; Atlantic majors hit reinsurance.
+#### How it helps investors
 
-Both feeds refresh on the same 60s tick as quotes and news.
+- **Lead time on sector moves.** A M6+ near Hsinchu, a Gulf hurricane forming, or a Red Sea tanker incident all hit the physical feed 30–120s before the headline reaches Reuters / Yahoo. Enough time to pull up `TSM`, `NG=F`, or `BDRY` before the tape moves.
+- **Explains price action.** When a stock gaps on your watchlist, a glance at the events panel tells you why. The news panel lags and is noisy; a structured physical feed answers "what just happened in the real world?" in one row.
+- **Sector / ticker attribution (mental map).** Taiwan / Japan → `TSM`, `ASML`, semis + autos. Gulf Coast → `XLE`, `CL=F`, `NG=F`, Florida insurers. Hormuz → `XOM`, tanker ETFs. Chile → copper miners. A disaster in any of those regions tells you which of *your* tickers to check first.
+- **Covers blind spots in the other panels.** `PREDICTION MARKETS` covers *probabilistic* risk (will X happen?). `NEWS` covers *narrated* risk (Reuters says X happened). `SEISMIC` / `TROPICAL CYCLONES` cover *physical* risk — it already happened, 90s ago, structured as `lat/lon/magnitude/category`. The terminal couldn't answer that before.
+
+#### What's in each panel
+
+- **SEISMIC EVENTS** — USGS M4.5+ worldwide feed, last 7 days. Magnitude threshold chip (`M4.5` / `M5` / `M5.5` / `M6` / `M7`) filters the list. Each row is color-coded by severity — dim for sub-5, green for moderate, red for M6+, red-filled for M7+. Rows show depth in km, a `TSUNAMI` tag when USGS flags one, and link to the event's USGS detail page.
+- **TROPICAL CYCLONES** — NOAA National Hurricane Center active-storms feed. Basin chip (`All` / `Atlantic` / `East Pacific` / `Central Pacific`). Each row shows the Saffir-Simpson category derived from 1-minute sustained wind (or `TD` / `TS` for sub-hurricane systems), wind speed in mph, central pressure in mb, and links to the NHC public advisory.
+
+(The internal state key for tropical cyclones is `storms` — short, snake-friendly — but the user-facing label is `TROPICAL CYCLONES` because that's the meteorological umbrella the NHC uses; tropical depressions, tropical storms, and hurricanes are all tropical cyclones at different intensities.)
+
+#### Chokepoints news preset
+
+Complementing the structured feeds above, `NEWS` gains a **Chokepoints** topic preset — a curated Google News query for shipping / supply-chain disruption (Red Sea, Suez, Panama, Strait of Hormuz, tanker incidents). Ripples into oil (`CL=F`), nat-gas (`NG=F`), container shippers, and the dry-bulk ETF (`BDRY`) before the move shows in price panels. No new infrastructure — rides on the existing news engine.
+
+Both structured feeds refresh on the same 60s tick as quotes and news.
 
 ### Extended hours (pre-market / after-hours)
 

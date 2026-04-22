@@ -911,6 +911,31 @@
                 </div>
 
                 <div class="help-section">
+                    <div class="help-section-title">PANEL PHILOSOPHY — FOUR BUCKETS</div>
+                    <pre>Every panel type sorts into one of four buckets:
+
+  1. PRICE INSTRUMENTS — STOCKS, INDICES, CRYPTO, FOREX,
+     COMMODITIES, TREASURIES. Structured numeric quotes.
+
+  2. INFORMATION FLOW — NEWS, CALENDAR, MOVERS, PREDICTION
+     MARKETS. Narrative + schedule + probabilistic risk.
+
+  3. VISUALIZATION — HEAT MAP. Sector-weighted treemap over
+     another panel's symbols.
+
+  4. LEADING-INDICATOR RISK SIGNALS — SEISMIC EVENTS,
+     TROPICAL CYCLONES. Physical-world events, structured as
+     lat/lon/magnitude/category, that hit the feed 30-120s
+     before the news cycle prices them in.
+
+The discipline for adding more panel types: free CORS-friendly
+API, threshold that maps to a tradeable instrument, fits the
+existing list-with-drilldown idiom. No flights/nuclear/cyber/
+elections firehose — the signal/noise ratio doesn't survive
+contact with a trading UI.</pre>
+                </div>
+
+                <div class="help-section">
                     <div class="help-section-title">CHANGE A PANEL'S DATA TYPE</div>
                     <pre>Click any panel title (e.g. "INDICES ▾") to pull down its tray.
 Click a panel-type chip: [STOCKS] [INDICES] [CRYPTO] [FOREX]
@@ -952,8 +977,15 @@ Press ESC (or [×]) to close.</pre>
                 <div class="help-section">
                     <div class="help-section-title">CHANGE NEWS TOPIC</div>
                     <pre>On a NEWS panel, click a topic chip in the tray:
-Markets · Tech/AI · Semis · Crypto · Economy · Energy · Politics · World
-Or type a custom query and press Enter to make your own topic.</pre>
+Markets · Tech/AI · Semis · Crypto · Economy · Energy ·
+Politics · World · Chokepoints.
+Or type a custom query and press Enter to make your own topic.
+
+CHOKEPOINTS is a curated preset for shipping / supply-chain
+disruption — Red Sea, Suez, Panama, Strait of Hormuz, tanker
+incidents. Ripples into oil (CL=F), nat-gas (NG=F), container
+shippers, and the dry-bulk ETF (BDRY) before the move shows
+in price panels.</pre>
                 </div>
 
                 <div class="help-section">
@@ -1008,32 +1040,49 @@ to open the ticker drilldown.</pre>
                 </div>
 
                 <div class="help-section">
-                    <div class="help-section-title">SEISMIC EVENTS &amp; TROPICAL CYCLONES</div>
-                    <pre>Two panel types surface physical-world events that move markets
-before the news cycle prices them in.
+                    <div class="help-section-title">SEISMIC EVENTS &amp; TROPICAL CYCLONES — WHY</div>
+                    <pre>Physical-world feeds are a fourth bucket alongside price /
+info / viz — leading-indicator risk signals. Four reasons
+they earn panel real-estate:
 
-SEISMIC EVENTS — USGS M4.5+ feed for the last 7 days. Filter by
-MIN MAG chip (M4.5 / M5 / M5.5 / M6 / M7). Each row shows:
-  - Magnitude badge (color-coded: dim → green → red → red-fill)
-  - Relative time and depth in km
-  - TSUNAMI tag if USGS flagged a tsunami advisory
-  - Click the location to open the USGS event page
-Why it matters: a M6+ near Hsinchu, Kyushu, Santiago, or the
-Gulf Coast can move TSM, ASML, autos, copper miners, and
-insurers minutes before the headline lands.
+  LEAD TIME ON SECTOR MOVES
+    A M6+ near Hsinchu, a Gulf hurricane forming, or a Red
+    Sea tanker incident all hit the physical feed 30-120s
+    before the headline reaches Reuters/Yahoo. Enough time
+    to pull up TSM, NG=F, or BDRY before the tape moves.
 
-TROPICAL CYCLONES — NOAA NHC active-storms feed. Filter by
-BASIN chip (Atlantic / East Pacific / Central Pacific / All).
-Each row shows:
-  - Saffir-Simpson CAT badge (derived from 1-min sustained
-    wind) or TD / TS for sub-hurricane systems
-  - Wind speed (mph) and central pressure (mb)
-  - Basin + last-update time
-  - Click the storm name for the NHC public advisory
-Why it matters: Gulf hurricanes drive nat-gas, gasoline, and
-Florida insurer moves; Atlantic majors hit reinsurance too.
+  EXPLAINS PRICE ACTION
+    When a stock gaps on the watchlist, a glance at the
+    events panel tells you why. The news panel lags and is
+    noisy; a structured physical feed answers "what just
+    happened in the real world?" in one row.
 
-Both feeds auto-refresh on the same 60s tick as everything else.</pre>
+  SECTOR / TICKER ATTRIBUTION (mental map)
+    Taiwan/Japan → TSM, ASML, semis + autos. Gulf Coast →
+    XLE, CL=F, NG=F, Florida insurers. Hormuz → XOM, tanker
+    ETFs. Chile → copper miners. A disaster in any of those
+    regions tells you which of YOUR tickers to check first.
+
+  COVERS BLIND SPOTS
+    Polymarket = probabilistic risk (will X happen?).
+    News = narrated risk (Reuters says X happened).
+    Seismic/Cyclones = physical risk — already happened,
+    90s ago, structured as lat/lon/magnitude/category.
+    The terminal couldn't answer that before.
+
+WHAT'S IN THE LIST
+  SEISMIC — USGS M4.5+ week feed. MIN MAG chip
+    (M4.5/M5/M5.5/M6/M7). Each row: magnitude badge
+    (dim → green → red → red-fill), depth km, TSUNAMI tag
+    when USGS flags one, click-through to USGS page.
+
+  TROPICAL CYCLONES — NOAA NHC active-storms feed. BASIN
+    chip (All / Atlantic / E. Pacific / C. Pacific). Each
+    row: Saffir-Simpson CAT from 1-min sustained wind
+    (or TD/TS for sub-hurricane), wind mph, pressure mb,
+    click-through to NHC public advisory.
+
+Both refresh on the same 60s tick as quotes and news.</pre>
                 </div>
 
                 <div class="help-section">
@@ -1167,14 +1216,15 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         };
 
         const NEWS_TOPICS = {
-            market:   { label: 'Markets',    query: 'stock market today NYSE NASDAQ' },
-            tech:     { label: 'Tech/AI',    query: 'artificial intelligence technology stocks earnings' },
-            semi:     { label: 'Semis',      query: 'semiconductor chip industry NVIDIA TSMC ASML' },
-            crypto:   { label: 'Crypto',     query: 'bitcoin ethereum cryptocurrency' },
-            economy:  { label: 'Economy',    query: 'federal reserve inflation economy GDP jobs' },
-            energy:   { label: 'Energy',     query: 'oil gas energy OPEC crude' },
-            politics: { label: 'Politics',   query: 'markets policy regulation congress' },
-            world:    { label: 'World',      query: 'world markets global finance europe asia' },
+            market:      { label: 'Markets',     query: 'stock market today NYSE NASDAQ' },
+            tech:        { label: 'Tech/AI',     query: 'artificial intelligence technology stocks earnings' },
+            semi:        { label: 'Semis',       query: 'semiconductor chip industry NVIDIA TSMC ASML' },
+            crypto:      { label: 'Crypto',      query: 'bitcoin ethereum cryptocurrency' },
+            economy:     { label: 'Economy',     query: 'federal reserve inflation economy GDP jobs' },
+            energy:      { label: 'Energy',      query: 'oil gas energy OPEC crude' },
+            politics:    { label: 'Politics',    query: 'markets policy regulation congress' },
+            world:       { label: 'World',       query: 'world markets global finance europe asia' },
+            chokepoints: { label: 'Chokepoints', query: 'Red Sea Suez Panama Canal Strait of Hormuz shipping disruption tanker' },
         };
 
         // USGS feed covers every M4.5+ quake worldwide over the last 7 days.
