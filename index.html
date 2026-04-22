@@ -374,6 +374,39 @@
         .quote-row.nodata .quote-price,
         .quote-row.nodata .quote-change { color: var(--text-dim); }
 
+        .quote-session-tag {
+            display: inline-block;
+            margin-left: 6px;
+            padding: 0 4px;
+            font-size: 9px;
+            line-height: 12px;
+            vertical-align: 1px;
+            letter-spacing: 0.5px;
+            border: 1px solid currentColor;
+            border-radius: 1px;
+            font-weight: 700;
+        }
+        .quote-session-tag.ext {
+            color: #ffb300;
+            background: rgba(255, 179, 0, 0.08);
+        }
+        .quote-session-tag.reg {
+            color: var(--text-dim);
+        }
+
+        .panel-title-ext {
+            color: #ffb300;
+            font-weight: 700;
+            margin-left: 4px;
+        }
+
+        .tray-hint {
+            color: var(--text-dim);
+            font-size: 10px;
+            margin-left: 8px;
+            align-self: center;
+        }
+
         /* Drilldown overlay */
         .drilldown-overlay {
             position: fixed; inset: 0; z-index: 1000;
@@ -857,6 +890,27 @@ Click any row for a full-screen drilldown:
                 </div>
 
                 <div class="help-section">
+                    <div class="help-section-title">EXTENDED HOURS (PRE-MARKET / AFTER-HOURS)</div>
+                    <pre>On a WATCHLIST or INDICES panel, open the tray and click the
+EXT HRS [OFF/ON] button. Per-panel toggle — each panel keeps
+its own preference.
+
+When ON and the market is in pre-market or after-hours:
+  - Price swaps to the extended-session price
+  - Change / % swaps to the extended-session change
+  - Volume swaps to that session's volume (PRE VOL / AH VOL)
+  - A small PRE or AH badge appears next to the price
+  - The meta row appends "REG CLOSE $XXX.XX" so the regular
+    close is still visible
+  - The panel title shows a gold "· EXT" marker
+
+When ON during regular hours (or when no extended data is
+available), rows show a dim REG badge but display normal
+regular-session values. Toggle OFF to hide badges and the
+extended data entirely.</pre>
+                </div>
+
+                <div class="help-section">
                     <div class="help-section-title">HEAT MAP</div>
                     <pre>Bloomberg-HMAP-style squarified treemap of another panel's
 symbols — tiles sized by market cap, colored on a diverging
@@ -963,8 +1017,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         ];
 
         const PANEL_TYPES = {
-            stocks:      { label: 'WATCHLIST',           usesSymbols: true,  usesNews: false, priceFormat: 'usd',   empty: 'NVDA, AAPL, TSLA…' },
-            indices:     { label: 'INDICES',             usesSymbols: true,  usesNews: false, priceFormat: 'index', empty: '^GSPC, ^IXIC, ^DJI…' },
+            stocks:      { label: 'WATCHLIST',           usesSymbols: true,  usesNews: false, priceFormat: 'usd',   empty: 'NVDA, AAPL, TSLA…', supportsExtendedHours: true },
+            indices:     { label: 'INDICES',             usesSymbols: true,  usesNews: false, priceFormat: 'index', empty: '^GSPC, ^IXIC, ^DJI…', supportsExtendedHours: true },
             crypto:      { label: 'CRYPTO',              usesSymbols: true,  usesNews: false, priceFormat: 'usd',   empty: 'BTC-USD, ETH-USD…' },
             forex:       { label: 'FOREX',               usesSymbols: true,  usesNews: false, priceFormat: 'forex', empty: 'EURUSD=X, USDJPY=X…' },
             commodities: { label: 'COMMODITIES',         usesSymbols: true,  usesNews: false, priceFormat: 'usd',   empty: 'CL=F, GC=F, SI=F…' },
@@ -1133,7 +1187,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
         async function fetchQuote(symbol) {
             const encoded = encodeURIComponent(symbol);
-            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=5m&range=1d&includePrePost=false`;
+            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=5m&range=1d&includePrePost=true`;
             try {
                 const data = await fetchViaProxy(url);
                 const result = data?.chart?.result?.[0];
@@ -1142,24 +1196,61 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const quote = result.indicators?.quote?.[0] || {};
                 const closeSeries = (quote.close || []).filter(v => v != null);
                 const timestamps = result.timestamp || [];
-                const currentPrice = meta.regularMarketPrice ?? closeSeries[closeSeries.length - 1] ?? null;
-                const previousClose = meta.previousClose ?? meta.chartPreviousClose ?? null;
-                if (currentPrice == null || previousClose == null) return null;
-                const change = currentPrice - previousClose;
-                const changePercent = previousClose ? (change / previousClose) * 100 : 0;
+                const regularPrice = meta.regularMarketPrice ?? closeSeries[closeSeries.length - 1] ?? null;
+                const previousClose = meta.chartPreviousClose ?? meta.previousClose ?? null;
+                if (regularPrice == null || previousClose == null) return null;
+                const regularChange = regularPrice - previousClose;
+                const regularChangePercent = previousClose ? (regularChange / previousClose) * 100 : 0;
+
+                // Pre/post extended-hours fields (may be missing depending on asset/hour)
+                const preMarketPrice   = Number.isFinite(meta.preMarketPrice)   ? meta.preMarketPrice   : null;
+                const postMarketPrice  = Number.isFinite(meta.postMarketPrice)  ? meta.postMarketPrice  : null;
+                const preMarketChange  = preMarketPrice  != null ? (preMarketPrice  - regularPrice) : null;
+                const postMarketChange = postMarketPrice != null ? (postMarketPrice - regularPrice) : null;
+                const preMarketChangePercent  = preMarketChange  != null && regularPrice ? (preMarketChange  / regularPrice) * 100 : null;
+                const postMarketChangePercent = postMarketChange != null && regularPrice ? (postMarketChange / regularPrice) * 100 : null;
+
+                // Per-bar volumes: sum pre- and post-market buckets using tradingPeriods.
+                const volumes = quote.volume || [];
+                const tp = meta.currentTradingPeriod || {};
+                const preWin  = tp.pre     ? [tp.pre.start,     tp.pre.end]     : null;
+                const postWin = tp.post    ? [tp.post.start,    tp.post.end]    : null;
+                const regWin  = tp.regular ? [tp.regular.start, tp.regular.end] : null;
+                let preVol = 0, postVol = 0, regVolFromBars = 0;
+                let preHas = false, postHas = false;
+                for (let i = 0; i < timestamps.length; i++) {
+                    const t = timestamps[i];
+                    const v = volumes[i];
+                    if (!Number.isFinite(v)) continue;
+                    if (preWin  && t >= preWin[0]  && t < preWin[1])  { preVol  += v; preHas  = true; }
+                    if (postWin && t >= postWin[0] && t < postWin[1]) { postVol += v; postHas = true; }
+                    if (regWin  && t >= regWin[0]  && t < regWin[1])  { regVolFromBars += v; }
+                }
+
                 return {
-                    price: currentPrice,
-                    change,
-                    changePercent,
+                    // Canonical "regular" snapshot — never overwritten by extended toggle
+                    price: regularPrice,
+                    change: regularChange,
+                    changePercent: regularChangePercent,
+                    regularPrice,
+                    regularChange,
+                    regularChangePercent,
                     previousClose,
                     shortName: meta.shortName || meta.symbol || symbol,
                     marketState: meta.marketState || null,
                     currency: meta.currency || null,
-                    volume: meta.regularMarketVolume ?? null,
+                    volume: meta.regularMarketVolume ?? (regVolFromBars || null),
                     dayHigh: meta.regularMarketDayHigh ?? null,
                     dayLow: meta.regularMarketDayLow ?? null,
                     yearHigh: meta.fiftyTwoWeekHigh ?? null,
                     yearLow: meta.fiftyTwoWeekLow ?? null,
+                    // Extended-hours
+                    preMarketPrice, preMarketChange, preMarketChangePercent,
+                    postMarketPrice, postMarketChange, postMarketChangePercent,
+                    preMarketVolume:  preHas  ? preVol  : null,
+                    postMarketVolume: postHas ? postVol : null,
+                    preMarketTime:  meta.preMarketTime  ?? null,
+                    postMarketTime: meta.postMarketTime ?? null,
                     closes: closeSeries,
                     timestamps,
                 };
@@ -1679,6 +1770,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         }
 
         function renderTitleDetail(panel) {
+            const extTag = (PANEL_TYPES[panel.type]?.supportsExtendedHours && panel.extendedHours)
+                ? ` <span class="panel-title-ext">· EXT</span>`
+                : '';
             if (panel.type === 'news' && panel.topic) {
                 const t = NEWS_TOPICS[panel.topic];
                 return ` <span style="color:var(--text-secondary);font-weight:400;">· ${t ? t.label : panel.topic}</span>`;
@@ -1691,7 +1785,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const src = state.panels[panel.sourcePanelId];
                 if (src) return ` <span style="color:var(--text-secondary);font-weight:400;">· SRC ${PANEL_TYPES[src.type].label}</span>`;
             }
-            return '';
+            return extTag;
         }
 
         function renderTrayHTML(pid) {
@@ -1787,6 +1881,18 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 `;
             }
 
+            let extHoursSection = '';
+            if (typeMeta?.supportsExtendedHours) {
+                const on = !!panel.extendedHours;
+                extHoursSection = `
+                    <div class="tray-row">
+                        <span class="tray-label">EXT HRS</span>
+                        <button class="chip${on ? ' active' : ''}" onclick="toggleExtendedHours('${pid}')">${on ? 'ON' : 'OFF'}</button>
+                        <span class="tray-hint">Pre-market & after-hours price / volume when open.</span>
+                    </div>
+                `;
+            }
+
             return `
                 <div class="tray-inner">
                     <div class="tray-row">
@@ -1797,6 +1903,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     ${topicSection}
                     ${predictionSection}
                     ${heatmapSection}
+                    ${extHoursSection}
                 </div>
             `;
         }
@@ -1833,6 +1940,44 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             return Math.round(n).toLocaleString('en-US');
         }
 
+        // Resolve which price/change/volume to show for a row given a panel's
+        // extended-hours toggle and the symbol's current marketState.
+        // Returns { price, change, changePercent, volume, sessionTag } where
+        // sessionTag is 'PRE' | 'AH' | 'REG' | null (null = regular, no badge).
+        function resolveQuoteView(q, panel) {
+            if (!q) return null;
+            const ext = !!panel?.extendedHours;
+            const ms = (q.marketState || '').toUpperCase();
+            if (ext && ms === 'PRE' && q.preMarketPrice != null) {
+                return {
+                    price: q.preMarketPrice,
+                    change: q.preMarketChange,
+                    changePercent: q.preMarketChangePercent,
+                    volume: q.preMarketVolume,
+                    sessionTag: 'PRE',
+                    time: q.preMarketTime,
+                };
+            }
+            if (ext && (ms === 'POST' || ms === 'POSTPOST' || ms === 'CLOSED') && q.postMarketPrice != null) {
+                return {
+                    price: q.postMarketPrice,
+                    change: q.postMarketChange,
+                    changePercent: q.postMarketChangePercent,
+                    volume: q.postMarketVolume,
+                    sessionTag: 'AH',
+                    time: q.postMarketTime,
+                };
+            }
+            return {
+                price: q.regularPrice ?? q.price,
+                change: q.regularChange ?? q.change,
+                changePercent: q.regularChangePercent ?? q.changePercent,
+                volume: q.volume,
+                sessionTag: ext ? 'REG' : null, // show "REG" tag when toggle on but no ext data
+                time: null,
+            };
+        }
+
         function renderQuoteTable(panel) {
             const symbols = panel.symbols || [];
             if (!symbols.length) {
@@ -1851,24 +1996,28 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         </div>
                     </div>`;
                 }
-                const cls = q.change > 0 ? 'positive' : q.change < 0 ? 'negative' : 'neutral';
+                const v = resolveQuoteView(q, panel);
+                const cls = v.change > 0 ? 'positive' : v.change < 0 ? 'negative' : 'neutral';
                 const staleCls = q.stale ? ' stale' : '';
-                const sign = q.change >= 0 ? '+' : '';
-                const pctSign = q.changePercent >= 0 ? '+' : '';
-                const priceStr = formatPriceFor(priceFormat, q.price);
+                const sign = v.change >= 0 ? '+' : '';
+                const pctSign = v.changePercent >= 0 ? '+' : '';
+                const priceStr = formatPriceFor(priceFormat, v.price);
                 const nameHTML = q.shortName && q.shortName !== sym
                     ? `<span class="name">${escapeHTML(truncate(q.shortName, 22))}</span>`
                     : '';
                 const changeStr = priceFormat === 'yield'
-                    ? `${sign}${q.change.toFixed(3)} (${pctSign}${q.changePercent.toFixed(2)}%)`
-                    : `${sign}${formatPriceFor(priceFormat, q.change, true)} (${pctSign}${q.changePercent.toFixed(2)}%)`;
-                const sparkHTML = renderSparkline(q.closes, q.change);
-                const metaHTML = renderQuoteMeta(q, priceFormat);
+                    ? `${sign}${v.change.toFixed(3)} (${pctSign}${v.changePercent.toFixed(2)}%)`
+                    : `${sign}${formatPriceFor(priceFormat, v.change, true)} (${pctSign}${v.changePercent.toFixed(2)}%)`;
+                const tagHTML = v.sessionTag && v.sessionTag !== null
+                    ? `<span class="quote-session-tag ${v.sessionTag === 'REG' ? 'reg' : 'ext'}">${v.sessionTag}</span>`
+                    : '';
+                const sparkHTML = renderSparkline(q.closes, v.change);
+                const metaHTML = renderQuoteMeta(q, priceFormat, v);
                 return `<div class="quote-row${staleCls}" data-sym="${escapeAttr(sym)}" onclick="openDrilldown('${escapeAttr(sym)}')">
                     <div class="quote-row-main">
                         <span class="quote-sym">${escapeHTML(sym)}${nameHTML}</span>
                         <span class="quote-spark">${sparkHTML}</span>
-                        <span class="quote-price">${priceStr}</span>
+                        <span class="quote-price">${priceStr}${tagHTML}</span>
                         <span class="quote-change ${cls}">${changeStr}</span>
                     </div>
                     ${metaHTML ? `<div class="quote-row-meta">${metaHTML}</div>` : ''}
@@ -2141,17 +2290,30 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             return Math.round((t - Date.now()) / 86_400_000);
         }
 
-        function renderQuoteMeta(q, priceFormat) {
+        function renderQuoteMeta(q, priceFormat, v) {
             const parts = [];
-            const volStr = formatVolume(q.volume);
+            // When a resolved view is provided and it points at an extended session,
+            // swap VOL for the extended-session volume so users see pre/post volume.
+            const volNum = (v && (v.sessionTag === 'PRE' || v.sessionTag === 'AH'))
+                ? v.volume
+                : q.volume;
+            const volStr = formatVolume(volNum);
             if (volStr && priceFormat !== 'yield' && priceFormat !== 'forex') {
-                parts.push(`VOL ${volStr}`);
+                const label = (v && (v.sessionTag === 'PRE' || v.sessionTag === 'AH'))
+                    ? `${v.sessionTag} VOL`
+                    : 'VOL';
+                parts.push(`${label} ${volStr}`);
             }
             if (q.dayHigh != null && q.dayLow != null && priceFormat !== 'yield') {
                 parts.push(`DAY ${formatPriceFor(priceFormat, q.dayLow)}–${formatPriceFor(priceFormat, q.dayHigh)}`);
             }
             if (q.yearHigh != null && q.yearLow != null) {
                 parts.push(`52W ${formatPriceFor(priceFormat, q.yearLow)}–${formatPriceFor(priceFormat, q.yearHigh)}`);
+            }
+            // When toggle is ON and current data is an extended session, also surface
+            // the regular-hours close so users don't lose that anchor.
+            if (v && (v.sessionTag === 'PRE' || v.sessionTag === 'AH') && q.regularPrice != null && priceFormat !== 'yield') {
+                parts.push(`REG CLOSE ${formatPriceFor(priceFormat, q.regularPrice)}`);
             }
             return parts.join(' · ');
         }
@@ -2871,12 +3033,18 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             if (!panel || panel.type === newType) return;
 
             panel.memory = panel.memory || {};
+            const oldType = panel.type;
             // Stash the current panel's symbols/topic under its old type so
             // switching back restores the user's additions instead of defaults.
-            if (PANEL_TYPES[panel.type].usesSymbols && Array.isArray(panel.symbols)) {
-                panel.memory[panel.type] = { symbols: [...panel.symbols] };
-            } else if (panel.type === 'news' && panel.topic) {
+            if (PANEL_TYPES[oldType].usesSymbols && Array.isArray(panel.symbols)) {
+                panel.memory[oldType] = { symbols: [...panel.symbols] };
+            } else if (oldType === 'news' && panel.topic) {
                 panel.memory.news = { topic: panel.topic };
+            }
+            // Stash extendedHours under the old type (only types that support it).
+            if (PANEL_TYPES[oldType].supportsExtendedHours && panel.extendedHours != null) {
+                panel.memory.extendedHours = panel.memory.extendedHours || {};
+                panel.memory.extendedHours[oldType] = panel.extendedHours;
             }
 
             panel.type = newType;
@@ -2909,6 +3077,14 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 if (panel.sourcePanelId) panel.memory.heatmap = { sourcePanelId: panel.sourcePanelId };
                 delete panel.sourcePanelId;
             }
+            // Extended-hours: restore remembered toggle for the new type (if any),
+            // or strip the flag when the new type doesn't support it.
+            if (PANEL_TYPES[newType].supportsExtendedHours) {
+                const mem = panel.memory.extendedHours;
+                panel.extendedHours = !!(mem && mem[newType]);
+            } else {
+                delete panel.extendedHours;
+            }
             delete panel._articles;
             delete panel._markets;
             saveState();
@@ -2931,6 +3107,15 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             const panel = state.panels[pid];
             if (!panel || panel.type !== 'heatmap') return;
             panel.sourcePanelId = sourcePanelId || null;
+            saveState();
+            renderAllPanels();
+        }
+
+        function toggleExtendedHours(pid) {
+            const panel = state.panels[pid];
+            if (!panel) return;
+            if (!PANEL_TYPES[panel.type]?.supportsExtendedHours) return;
+            panel.extendedHours = !panel.extendedHours;
             saveState();
             renderAllPanels();
         }

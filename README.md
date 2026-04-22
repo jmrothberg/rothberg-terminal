@@ -91,6 +91,10 @@ The `PREDICTION MARKETS` panel lists the top 20 active Polymarket markets by 24-
 
 The `HEAT MAP` panel renders a squarified treemap of another panel's symbols — tiles sized by market cap, colored on a diverging red↔green ramp by day change, grouped into sector buckets. Pick the source panel from the tray's SOURCE dropdown. Click any tile to open the ticker drilldown. Sector data is hydrated progressively from Yahoo's fundamentals endpoint; first paint uses equal-weighted `UNCLASSIFIED` tiles and re-lays out as sectors resolve.
 
+### Extended hours (pre-market / after-hours)
+
+`WATCHLIST` and `INDICES` panels have an `EXT HRS` toggle in the tray (per-panel — each panel remembers its own setting). When ON and the market is in a pre-market or after-hours session, the row swaps to show the extended-session price, change, and volume, with a gold `PRE` or `AH` badge next to the price and a `REG CLOSE $XXX.XX` tag in the meta row so the regular close is never lost. The panel title gains a gold `· EXT` marker. During regular hours with the toggle ON, rows show a dim `REG` badge but display normal regular-session values. Toggle OFF to hide badges and extended data entirely. Backed by Yahoo Finance's `includePrePost=true` chart endpoint.
+
 ### Interactions
 
 - **Click any panel title** → tray slides down in phosphor green
