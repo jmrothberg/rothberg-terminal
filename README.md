@@ -52,11 +52,11 @@ Every panel type sorts into one of four buckets, and that's the discipline:
 1. **Price instruments** — `STOCKS`, `INDICES`, `CRYPTO`, `FOREX`, `COMMODITIES`, `TREASURIES`. Structured numeric quotes.
 2. **Information flow** — `NEWS`, `CALENDAR`, `MOVERS`, `PREDICTION MARKETS`. Narrative + schedule + probabilistic risk. `CALENDAR` straddles macro and energy — a `Macro / Energy / All` chip in the tray filters between BLS / Fed / BEA releases and EIA weeklies + STEO.
 3. **Visualization** — **Heat map** as a **DISPLAY** mode on any price panel (same symbols as the quote table). Not a separate panel type — open the tray, use **DISPLAY → HEAT MAP** vs **ENTERED** / **A↔Z** / **%**.
-4. **Leading-indicator risk signals** — `SEISMIC EVENTS`, `TROPICAL CYCLONES`. Physical-world events, structured as lat/lon/magnitude/category, that hit the feed before the news cycle prices them in.
+4. **Leading-indicator risk signals** — `SEISMIC EVENTS`, `TROPICAL CYCLONES`, **`EARTH EVENTS (NASA)`** (EONET). Physical-world events with lat/lon (and size when published): quakes/hurricanes plus wildfire, volcano, dust, drought, and related hazards — useful for explaining or front-running moves in **utilities, insurers, ag, solar, airlines, shipping**, and regional equities before headlines fully price them in.
 
 The rules for adding more panel types: free CORS-friendly API, threshold that maps to a tradeable instrument, fits the existing list-with-drilldown idiom. That's why there's no flights / nuclear / cyber-KEV / elections firehose — the signal/noise ratio doesn't survive contact with a trading UI.
 
-### Twelve panel types — reassign any panel to any type
+### Thirteen panel types — reassign any panel to any type
 
 Heat map is **not** listed here — it is a **DISPLAY** option on the types below that load symbols (**STOCKS**, **INDICES**, **CRYPTO**, **FOREX**, **COMMODITIES**, **TREASURIES**). See [Display and heat map](#display-and-heat-map-hmap-style).
 
@@ -74,6 +74,7 @@ Heat map is **not** listed here — it is a **DISPLAY** option on the types belo
 | **PREDICTION MARKETS** | Live Polymarket markets ranked by 24h volume | Filter: All · Politics · Crypto · Sports · Elections · Economics |
 | **SEISMIC EVENTS** | Live USGS earthquake feed (M4.5+ last 7 days) | Threshold: M4.5 · M5 · M5.5 · M6 · M7 |
 | **TROPICAL CYCLONES** | Active NOAA NHC storms with Saffir-Simpson category | Basin: All · Atlantic · East Pacific · Central Pacific |
+| **EARTH EVENTS (NASA)** | NASA [EONET](https://eonet.gsfc.nasa.gov/) open natural-hazard events (last 14 days) | **FILTER:** All · Fire · Volc · Dust · Dry · Storm · Ice · Slide — each chip is a one-line “why markets care” hint in the tray; **DISPLAY → GLOBE** uses the same filtered feed (polygon → centroid). **No API key.** When every open EONET panel shares the same chip (not ALL), that category loads first and the full open-events feed merges in the background. Globe dots use distinct colors per hazard and size scales within each type in the current view. When NASA gives a numeric size (e.g. acres, kt), it shows on the row; otherwise globe weight blends footprint + recency (not comparable to Richter). |
 
 ### Per-row extras
 
@@ -115,19 +116,21 @@ Click any tile to open the ticker drilldown. Sector weights come from Yahoo’s 
 
 ### Physical-world risk feeds (seismic + tropical cyclones)
 
-Two panel types surface structured, real-world events that move markets before the news cycle prices them in. They render in the same list-with-drilldown shape as `NEWS`, auto-refresh on the same tick as quotes, and drop into the existing grid without any UI rethink.
+Three panel types surface structured, real-world events that move markets before the news cycle prices them in. They render in the same list-with-drilldown shape as `NEWS`, auto-refresh on the same tick as quotes, and drop into the existing grid without any UI rethink.
 
 #### How it helps investors
 
 - **Lead time on sector moves.** A M6+ near Hsinchu, a Gulf hurricane forming, or a Red Sea tanker incident all hit the physical feed 30–120s before the headline reaches Reuters / Yahoo. Enough time to pull up `TSM`, `NG=F`, or `BDRY` before the tape moves.
 - **Explains price action.** When a stock gaps on your watchlist, a glance at the events panel tells you why. The news panel lags and is noisy; a structured physical feed answers "what just happened in the real world?" in one row.
 - **Sector / ticker attribution (mental map).** Taiwan / Japan → `TSM`, `ASML`, semis + autos. Gulf Coast → `XLE`, `CL=F`, `NG=F`, Florida insurers. Hormuz → `XOM`, tanker ETFs. Chile → copper miners. A disaster in any of those regions tells you which of *your* tickers to check first.
-- **Covers blind spots in the other panels.** `PREDICTION MARKETS` covers *probabilistic* risk (will X happen?). `NEWS` covers *narrated* risk (Reuters says X happened). `SEISMIC` / `TROPICAL CYCLONES` cover *physical* risk — it already happened, 90s ago, structured as `lat/lon/magnitude/category`. The terminal couldn't answer that before.
+- **Covers blind spots in the other panels.** `PREDICTION MARKETS` covers *probabilistic* risk (will X happen?). `NEWS` covers *narrated* risk (Reuters says X happened). `SEISMIC` / `TROPICAL CYCLONES` / **`EARTH EVENTS (NASA)`** cover *physical* risk — it already happened, structured as `lat/lon` plus category (and NASA-reported size when present). The terminal couldn't answer that before.
 
 #### What's in each panel
 
 - **SEISMIC EVENTS** — USGS M4.5+ worldwide feed, last 7 days. Magnitude threshold chip (`M4.5` / `M5` / `M5.5` / `M6` / `M7`) filters the list. Each row is color-coded by severity — dim for sub-5, green for moderate, red for M6+, red-filled for M7+. Rows show depth in km, a `TSUNAMI` tag when USGS flags one, and link to the event's USGS detail page.
 - **TROPICAL CYCLONES** — NOAA National Hurricane Center active-storms feed. Basin chip (`All` / `Atlantic` / `East Pacific` / `Central Pacific`). Each row shows the Saffir-Simpson category derived from 1-minute sustained wind (or `TD` / `TS` for sub-hurricane systems), wind speed in mph, central pressure in mb, and links to the NHC public advisory.
+
+- **EARTH EVENTS (NASA)** — NASA EONET `events/geojson` (open events, last 14 days). **FILTER** chips narrow one list and one optional globe: wildfires (utilities / REITs / insurers), volcanoes (airlines / cargo), dust & haze (solar / ports), drought (ag / barges), severe storms, sea/lake ice, landslides. Tray tooltips spell out the **investment angle**; this is **not** armed-conflict mapping (use `NEWS` for that narrative). Same **DISPLAY → GLOBE** pattern as seismic/storms; coastlines load from Natural Earth via jsDelivr.
 
 (The internal state key for tropical cyclones is `storms` — short, snake-friendly — but the user-facing label is `TROPICAL CYCLONES` because that's the meteorological umbrella the NHC uses; tropical depressions, tropical storms, and hurricanes are all tropical cyclones at different intensities.)
 
@@ -135,7 +138,7 @@ Two panel types surface structured, real-world events that move markets before t
 
 Complementing the structured feeds above, `NEWS` gains a **Chokepoints** topic preset — a curated Google News query for shipping / supply-chain disruption (Red Sea, Suez, Panama, Strait of Hormuz, tanker incidents). Ripples into oil (`CL=F`), nat-gas (`NG=F`), container shippers, and the dry-bulk ETF (`BDRY`) before the move shows in price panels. No new infrastructure — rides on the existing news engine.
 
-Both structured feeds refresh on the same 60s tick as quotes and news.
+All three structured hazard feeds refresh on the same 60s tick as quotes and news.
 
 ### EIA integration
 
@@ -257,6 +260,7 @@ Every number on the screen is from one of these free, public sources. No API key
 | Heat map (DISPLAY mode on symbol panels) | Yahoo `fundamentals-timeseries` + `v1/search` | — | Treemap sectors / market caps — same endpoints as drilldown; not a separate panel |
 | Seismic events | [USGS M4.5+ week feed](https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson) | — | CORS-open GeoJSON, direct fetch |
 | Tropical cyclones | [NOAA NHC `CurrentStorms.json`](https://www.nhc.noaa.gov/CurrentStorms.json) (via proxy) | — | NHC doesn't serve CORS headers; same proxy rotation as Yahoo |
+| Earth events (NASA EONET) | [`api/v3/events/geojson`](https://eonet.gsfc.nasa.gov/api/v3/events/geojson) | — | CORS-open (`Access-Control-Allow-Origin: *`); falls back to the same proxy rotation if a browser blocks direct fetch |
 
 ### CORS proxies tried in order
 
@@ -275,7 +279,7 @@ Whichever one succeeds becomes the preferred proxy for subsequent requests in th
 **Single HTML file. Vanilla JS. Zero build step.**
 
 - **UI:** ~400 lines of CSS (phosphor-on-black, IBM Plex Mono), ~80 lines of HTML shell
-- **Logic:** ~1000 lines of vanilla JavaScript, no framework
+- **Logic:** ~5200 lines of vanilla JavaScript, no framework
 - **State model:**
 
 ```js

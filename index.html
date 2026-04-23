@@ -670,6 +670,32 @@
         .storm-sev-moderate   { color: var(--text-accent); }
         .storm-sev-major      { color: var(--color-negative); border-color: var(--color-negative); }
         .storm-sev-severe     { color: var(--bg-primary); background: var(--color-negative); border-color: var(--color-negative); }
+
+        /* NASA EONET earth-events badge (list rows) — reuses severity ramp by impact tier */
+        .eonet-cat {
+            display: inline-block;
+            font-weight: 700;
+            font-size: 10px;
+            padding: 1px 6px;
+            border: 1px solid var(--border-color);
+            margin-right: 6px;
+        }
+        .eonet-cat-wildfires    { color: #ff6a1a; border-color: #d9480f; }
+        .eonet-cat-volcanoes    { color: #ff2fa8; border-color: #c41a7a; }
+        .eonet-cat-dustHaze     { color: #d4b85c; border-color: #9a8238; }
+        .eonet-cat-drought      { color: #c9a03a; border-color: #8a6f28; }
+        .eonet-cat-severeStorms { color: #00c9b8; border-color: #008f83; }
+        .eonet-cat-seaLakeIce   { color: #a8d8ff; border-color: #5a9fe6; }
+        .eonet-cat-landslides   { color: #c978ff; border-color: #8a3dcc; }
+        .eonet-merge-hint {
+            font-size: 10px;
+            color: var(--text-dim);
+            padding: 4px 0 8px;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 6px;
+        }
+        .eonet-cat-all         { color: var(--text-secondary); border-color: var(--border-color); }
+        .eonet-cat-default     { color: var(--text-accent); border-color: var(--text-dim); }
         .event-tag-warn {
             color: var(--bg-primary);
             background: var(--color-negative);
@@ -956,9 +982,10 @@
      panel (same symbols as the table; no separate panel type).
 
   4. LEADING-INDICATOR RISK SIGNALS — SEISMIC EVENTS,
-     TROPICAL CYCLONES. Physical-world events, structured as
-     lat/lon/magnitude/category, that hit the feed 30-120s
-     before the news cycle prices them in.
+     TROPICAL CYCLONES, EARTH EVENTS (NASA). Physical-world
+     events, structured as lat/lon/category (and size when
+     NASA provides it), that hit the feed before the news
+     cycle prices them in.
 
 The discipline for adding more panel types: free CORS-friendly
 API, threshold that maps to a tradeable instrument, fits the
@@ -972,7 +999,7 @@ contact with a trading UI.</pre>
                     <pre>Click any panel title (e.g. "INDICES ▾") to pull down its tray.
 Click a panel-type chip: [STOCKS] [INDICES] [CRYPTO] [FOREX]
 [COMMODITIES] [TREASURIES] [NEWS] [PREDICTION MARKETS]
-[CALENDAR] [MOVERS] [SEISMIC] [STORMS].
+[CALENDAR] [MOVERS] [SEISMIC] [STORMS] [EARTH EVENTS].
 The panel's title, content, and defaults switch instantly.</pre>
                 </div>
 
@@ -1145,9 +1172,9 @@ they earn panel real-estate:
   COVERS BLIND SPOTS
     Polymarket = probabilistic risk (will X happen?).
     News = narrated risk (Reuters says X happened).
-    Seismic/Cyclones = physical risk — already happened,
-    90s ago, structured as lat/lon/magnitude/category.
-    The terminal couldn't answer that before.
+    Seismic/Cyclones/Earth events = physical risk — already
+    happened, structured as lat/lon/category (+ size when
+    published). The terminal couldn't answer that before.
 
 WHAT'S IN THE LIST
   SEISMIC — USGS M4.5+ week feed. MIN MAG chip
@@ -1164,7 +1191,28 @@ WHAT'S IN THE LIST
     DISPLAY → GLOBE: storm centers (latitude_numeric /
     longitude_numeric from NHC JSON).
 
-Both refresh on the same 60s tick as quotes and news.</pre>
+  EARTH EVENTS (NASA) — NASA EONET open events (last 14 days).
+    No API key. FILTER chips pick hazard type on one list and
+    one globe (not separate panel types):
+      ALL — every open EONET event (noisier).
+      FIRE — wildfire · utilities, REITs, timber, insurers.
+      VOLC — volcano / ash · airlines, cargo, tourism.
+      DUST — dust & haze · solar output, port visibility.
+      DRY — drought · ag, barges, hydropower narrative.
+      STORM — severe (non-tropical) systems EONET tracks.
+      ICE — sea / lake ice · arctic shipping seasonality.
+      SLIDE — landslides · mines, rails, roads into supply.
+    Rows: category badge, NASA title, relative time, link
+    (source URL when present). When NASA gives magnitude
+    (e.g. acres, kt), it shows as a secondary badge — unlike
+    Richter, units differ by hazard; when absent, globe dot
+    size uses a footprint/recency blend (see tray hint).
+    Polygons → map pin at centroid (outline only on NASA).
+    DISPLAY → GLOBE: same filtered events on the rotating
+    globe with Natural Earth coastlines.
+
+Seismic, cyclones, and Earth events refresh on the same 60s
+tick as quotes and news.</pre>
                 </div>
 
                 <div class="help-section">
@@ -1181,7 +1229,9 @@ EIA news:     eia.gov/rss/todayinenergy.xml — U.S. Energy Information
 Calendar:     Computed client-side — schedule only, no API
 Movers/VIX:   Derived locally from loaded quotes
 Seismic:      USGS earthquake.usgs.gov M4.5+ week feed (direct)
-Cyclones:     NOAA NHC CurrentStorms.json (proxied)</pre>
+Cyclones:     NOAA NHC CurrentStorms.json (proxied)
+Earth events: NASA EONET api/v3/events/geojson (direct CORS;
+              falls back to same public proxies if needed)</pre>
                 </div>
 
                 <div class="help-section">
@@ -1276,9 +1326,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             prediction:  { label: 'PREDICTION MARKETS',  usesSymbols: false, usesNews: false },
             seismic:     { label: 'SEISMIC EVENTS',      usesSymbols: false, usesNews: false, supportsGeoDisplay: true },
             storms:      { label: 'TROPICAL CYCLONES',   usesSymbols: false, usesNews: false, supportsGeoDisplay: true },
+            eonet:       { label: 'EARTH EVENTS (NASA)', usesSymbols: false, usesNews: false, supportsGeoDisplay: true },
         };
 
-        const PANEL_TYPE_ORDER = ['stocks','indices','crypto','forex','commodities','bonds','news','prediction','calendar','movers','seismic','storms'];
+        const PANEL_TYPE_ORDER = ['stocks','indices','crypto','forex','commodities','bonds','news','prediction','calendar','movers','seismic','storms','eonet'];
 
         const POLYMARKET_FILTERS = [
             { key: 'all',       label: 'All',       slug: null },
@@ -1336,6 +1387,30 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             { key: 'cp',  label: 'C. Pacific' },
         ];
 
+        // NASA EONET — open natural-hazard events, GeoJSON, no API key (CORS *).
+        // One panel: tray FILTER chips narrow the same list + globe (not 8 panel types).
+        const EONET_GEOJSON_URL = 'https://eonet.gsfc.nasa.gov/api/v3/events/geojson?days=14&status=open';
+        const EONET_FILTER_CHIPS = [
+            { key: 'all',           label: 'ALL',   title: 'All open EONET events (noisier mix)' },
+            { key: 'wildfires',     label: 'FIRE',  title: 'Wildfire · utilities, REITs, timber, regional power, insurers' },
+            { key: 'volcanoes',     label: 'VOLC',  title: 'Volcano / ash · airlines, air cargo, tourism, downwind manufacturing' },
+            { key: 'dustHaze',      label: 'DUST',  title: 'Dust & haze · solar soiling, port / highway visibility' },
+            { key: 'drought',       label: 'DRY',   title: 'Drought · ag yields, barges, hydropower, food inflation narrative' },
+            { key: 'severeStorms',  label: 'STORM', title: 'Severe storms (EONET) · cross-check vs NHC tropical panel' },
+            { key: 'seaLakeIce',    label: 'ICE',   title: 'Sea / lake ice · arctic shipping, LNG / fishing routes' },
+            { key: 'landslides',    label: 'SLIDE', title: 'Landslides · mines, rails, roads into producing regions' },
+        ];
+        // Globe front/back hemisphere + list chip borders — seven hazards read distinctly (fire vs ice vs storm).
+        const EONET_GLOBE_PALETTE = {
+            wildfires:    { bright: 'rgba(255,88,12,0.95)',   dim: 'rgba(175,48,8,0.5)' },
+            volcanoes:    { bright: 'rgba(255,38,168,0.94)',  dim: 'rgba(130,20,88,0.52)' },
+            dustHaze:     { bright: 'rgba(230,200,95,0.92)',  dim: 'rgba(130,110,55,0.5)' },
+            drought:      { bright: 'rgba(205,150,55,0.92)',  dim: 'rgba(115,82,35,0.5)' },
+            severeStorms: { bright: 'rgba(0,210,195,0.94)',   dim: 'rgba(0,105,98,0.52)' },
+            seaLakeIce:   { bright: 'rgba(175,215,255,0.96)', dim: 'rgba(95,140,210,0.55)' },
+            landslides:   { bright: 'rgba(200,115,255,0.92)', dim: 'rgba(95,55,140,0.5)' },
+        };
+
         const CALENDAR_CATEGORIES = [
             { key: 'all',    label: 'All' },
             { key: 'macro',  label: 'Macro' },
@@ -1375,6 +1450,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         let isRefreshing = false;
         let refreshTimerId = null;
         let autoCompleteAbort = null;
+        /** EONET: one in-flight full-feed merge so chip switches + background refresh share a single fetch. */
+        let eonetFullMergePromise = null;
 
         function loadState() {
             try {
@@ -2367,6 +2444,238 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
         }
 
+        // --- NASA EONET (Earth events) — parse GeoJSON → list + globe; no API key. ---
+        function eonetRingCentroidArea(coords) {
+            if (!coords || !coords.length) return { lat: null, lon: null, area: 0 };
+            let sx = 0, sy = 0, n = 0;
+            for (const c of coords) {
+                if (!Array.isArray(c) || c.length < 2) continue;
+                const lon = Number(c[0]), lat = Number(c[1]);
+                if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+                sx += lon; sy += lat; n++;
+            }
+            if (!n) return { lat: null, lon: null, area: 0 };
+            let a = 0;
+            const m = coords.length;
+            for (let i = 0; i < m; i++) {
+                const c = coords[i], d = coords[(i + 1) % m];
+                if (!c || !d || c.length < 2 || d.length < 2) continue;
+                a += Number(c[0]) * Number(d[1]) - Number(d[0]) * Number(c[1]);
+            }
+            return { lat: sy / n, lon: sx / n, area: Math.abs(a / 2) };
+        }
+
+        function eonetExtractLatLonFootprint(geometry) {
+            if (!geometry || !geometry.type) return { lat: null, lon: null, footprint: 0 };
+            const t = geometry.type;
+            const g = geometry.coordinates;
+            try {
+                if (t === 'Point' && Array.isArray(g) && g.length >= 2) {
+                    const lon = Number(g[0]), lat = Number(g[1]);
+                    return Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon, footprint: 0 } : { lat: null, lon: null, footprint: 0 };
+                }
+                if (t === 'MultiPoint' && Array.isArray(g) && g.length) {
+                    return eonetExtractLatLonFootprint({ type: 'Point', coordinates: g[0] });
+                }
+                if (t === 'LineString' && Array.isArray(g) && g.length) {
+                    const r = eonetRingCentroidArea(g);
+                    return { lat: r.lat, lon: r.lon, footprint: 0 };
+                }
+                if (t === 'MultiLineString' && Array.isArray(g) && g.length && g[0]) {
+                    const r = eonetRingCentroidArea(g[0]);
+                    return { lat: r.lat, lon: r.lon, footprint: 0 };
+                }
+                if (t === 'Polygon' && Array.isArray(g) && g[0]) {
+                    const r = eonetRingCentroidArea(g[0]);
+                    return { lat: r.lat, lon: r.lon, footprint: r.area };
+                }
+                if (t === 'MultiPolygon' && Array.isArray(g) && g[0] && g[0][0]) {
+                    const r = eonetRingCentroidArea(g[0][0]);
+                    return { lat: r.lat, lon: r.lon, footprint: r.area };
+                }
+            } catch (e) { /* malformed geometry */ }
+            return { lat: null, lon: null, footprint: 0 };
+        }
+
+        function eonetFootprintRank(deg2) {
+            if (!deg2 || !Number.isFinite(deg2) || deg2 <= 0) return 0;
+            return Math.min(1, Math.log10(10 + deg2) / 5);
+        }
+
+        function eonetDisplayScore(ev) {
+            const baseTier = {
+                volcanoes: 1.45, wildfires: 1.25, severeStorms: 1.18, drought: 1.12,
+                landslides: 1.1, seaLakeIce: 1.06, dustHaze: 1.05, default: 1,
+            };
+            let s = baseTier[ev.categoryPrimary] || baseTier.default;
+            if (ev.magnitudeValue != null && Number.isFinite(ev.magnitudeValue)) {
+                const u = (ev.magnitudeUnit || '').toLowerCase();
+                const v = ev.magnitudeValue;
+                if (u.includes('acre')) s += Math.min(2.2, Math.log10(10 + v) / 2.8);
+                else if (u.includes('kt')) s += Math.min(2, v / 100);
+                else s += Math.min(1.6, Math.log10(10 + Math.abs(v)) / 3);
+            }
+            s += eonetFootprintRank(ev.footprintDeg2) * 0.85;
+            const ageH = (Date.now() - ev.dateMs) / 3600000;
+            if (ageH < 18) s *= 1.12;
+            else if (ageH < 48) s *= 1.05;
+            return s;
+        }
+
+        function eonetNormalizeFeature(feature) {
+            const p = feature.properties || {};
+            const cats = Array.isArray(p.categories) ? p.categories : [];
+            const catIds = cats.map(c => c && c.id).filter(Boolean);
+            const cat0 = catIds[0] || 'unknown';
+            const catTitle = (cats[0] && cats[0].title) || cat0;
+            const { lat, lon, footprint } = eonetExtractLatLonFootprint(feature.geometry);
+            const src = Array.isArray(p.sources) && p.sources[0];
+            const linkOut = (src && src.url) || p.link || null;
+            const dateStr = p.date || null;
+            let dateMs = dateStr ? Date.parse(dateStr) : NaN;
+            if (!Number.isFinite(dateMs)) dateMs = Date.now();
+            const magnitudeValue = typeof p.magnitudeValue === 'number' ? p.magnitudeValue : null;
+            const magnitudeUnit = p.magnitudeUnit != null ? String(p.magnitudeUnit) : null;
+            const id = String(p.id || feature.id || '');
+            return {
+                id,
+                title: p.title || '(untitled)',
+                description: p.description || '',
+                date: dateStr,
+                dateMs,
+                link: linkOut,
+                categoryIds: catIds,
+                categoryPrimary: cat0,
+                categoryTitle: catTitle,
+                magnitudeValue,
+                magnitudeUnit,
+                lat,
+                lon,
+                footprintDeg2: footprint,
+            };
+        }
+
+        function normalizeEonetGeojson(data) {
+            const feats = data && Array.isArray(data.features) ? data.features : [];
+            const out = [];
+            for (const f of feats) {
+                const ev = eonetNormalizeFeature(f);
+                if (ev.lat == null || ev.lon == null) continue;
+                ev.displayScore = eonetDisplayScore(ev);
+                out.push(ev);
+            }
+            out.sort((a, b) => b.dateMs - a.dateMs);
+            return out;
+        }
+
+        function eonetEventPassesFilter(ev, filterKey) {
+            if (!filterKey || filterKey === 'all') return true;
+            return ev.categoryIds && ev.categoryIds.includes(filterKey);
+        }
+
+        async function fetchEonetGeojson() {
+            const bust = (EONET_GEOJSON_URL.includes('?') ? '&' : '?') + '_t=' + Date.now();
+            try {
+                const res = await fetch(EONET_GEOJSON_URL + bust, { cache: 'no-store' });
+                if (res.ok) return await res.json();
+            } catch (e) { /* fall through to proxy */ }
+            try {
+                return await fetchViaProxy(EONET_GEOJSON_URL);
+            } catch (e2) {
+                return null;
+            }
+        }
+
+        /** EONET category-scoped GeoJSON (faster first paint when every open eonet panel shares one chip). */
+        async function fetchEonetGeojsonForCategory(categoryKey) {
+            const url = `${EONET_GEOJSON_URL}&category=${encodeURIComponent(categoryKey)}`;
+            const bust = (url.includes('?') ? '&' : '?') + '_t=' + Date.now();
+            try {
+                const res = await fetch(url + bust, { cache: 'no-store' });
+                if (res.ok) return await res.json();
+            } catch (e) { /* proxy */ }
+            try {
+                return await fetchViaProxy(url);
+            } catch (e2) {
+                return null;
+            }
+        }
+
+        /**
+         * Assign full open-events feed to eonet panels. If merge fails but a panel still has
+         * `_eonetPartial` chip data, keep that subset instead of wiping the UI.
+         */
+        async function applyEonetFullToPanels(ids) {
+            const raw = await fetchEonetGeojson();
+            const normalized = raw ? normalizeEonetGeojson(raw) : null;
+            for (const pid of ids) {
+                const p = state.panels[pid];
+                if (!p || p.type !== 'eonet') continue;
+                if (normalized == null) {
+                    if (!p._eonetPartial) {
+                        p._eonetEvents = null;
+                        p._eonetFailed = true;
+                    }
+                } else {
+                    p._eonetEvents = normalized;
+                    p._eonetFailed = false;
+                    delete p._eonetPartial;
+                    delete p._eonetPartialCategory;
+                }
+            }
+        }
+
+        /** Non-blocking: one shared promise so [R] + chip changes do not stack duplicate NASA pulls. */
+        function scheduleEonetFullMerge() {
+            if (eonetFullMergePromise) return eonetFullMergePromise;
+            eonetFullMergePromise = (async () => {
+                try {
+                    const ids = state.layout.filter(pid => state.panels[pid]?.type === 'eonet');
+                    if (ids.length) await applyEonetFullToPanels(ids);
+                    renderAllPanels();
+                } catch (e) {
+                    console.error('EONET full merge:', e);
+                } finally {
+                    eonetFullMergePromise = null;
+                }
+            })();
+            return eonetFullMergePromise;
+        }
+
+        async function refreshEonetPanels() {
+            const ids = state.layout.filter(pid => state.panels[pid]?.type === 'eonet');
+            if (!ids.length) return;
+            const filters = new Set(ids.map(id => state.panels[id].eonetFilter || 'wildfires'));
+            const oneChip = filters.size === 1 ? [...filters][0] : null;
+            const useCategoryFirst = oneChip && oneChip !== 'all';
+
+            if (useCategoryFirst) {
+                const rawFast = await fetchEonetGeojsonForCategory(oneChip);
+                const normalizedFast = rawFast ? normalizeEonetGeojson(rawFast) : null;
+                for (const pid of ids) {
+                    const p = state.panels[pid];
+                    if (normalizedFast == null) {
+                        p._eonetEvents = null;
+                        p._eonetFailed = false;
+                        delete p._eonetPartial;
+                        delete p._eonetPartialCategory;
+                    } else {
+                        p._eonetEvents = normalizedFast;
+                        p._eonetFailed = false;
+                        p._eonetPartial = true;
+                        p._eonetPartialCategory = oneChip;
+                    }
+                }
+                if (normalizedFast != null) {
+                    void scheduleEonetFullMerge();
+                } else {
+                    await applyEonetFullToPanels(ids);
+                }
+            } else {
+                await applyEonetFullToPanels(ids);
+            }
+        }
+
         async function refreshAll() {
             if (isRefreshing) return;
             isRefreshing = true;
@@ -2374,7 +2683,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             if (btn) btn.disabled = true;
             updateStatus('FETCHING…', 'normal');
             try {
-                await Promise.all([refreshQuotes(), refreshNewsPanels(), refreshPredictionPanels(), refreshSeismicPanels(), refreshStormPanels()]);
+                await Promise.all([refreshQuotes(), refreshNewsPanels(), refreshPredictionPanels(), refreshSeismicPanels(), refreshStormPanels(), refreshEonetPanels()]);
                 renderAllPanels();
                 if (currentDrilldown && currentDrilldown.kind === 'ticker') {
                     renderDrilldownPrice(currentDrilldown.symbol);
@@ -2478,6 +2787,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const b = STORM_BASINS.find(x => x.key === (panel.basin || 'all'));
                 const g = panel.display === 'globe' ? ' · GLOBE' : '';
                 return ` <span style="color:var(--text-secondary);font-weight:400;">· ${b ? b.label : panel.basin}${g}</span>`;
+            }
+            if (panel.type === 'eonet') {
+                const chip = EONET_FILTER_CHIPS.find(x => x.key === (panel.eonetFilter || 'wildfires'));
+                const g = panel.display === 'globe' ? ' · GLOBE' : '';
+                return ` <span style="color:var(--text-secondary);font-weight:400;">· ${chip ? chip.label : '—'}${g}</span>`;
             }
             if (panel.type === 'calendar' && panel.category && panel.category !== 'all') {
                 const c = CALENDAR_CATEGORIES.find(x => x.key === panel.category);
@@ -2620,6 +2934,30 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 `;
             }
 
+            let eonetSection = '';
+            if (panel.type === 'eonet') {
+                const currentF = panel.eonetFilter || 'wildfires';
+                const chips = EONET_FILTER_CHIPS.map(c => {
+                    const active = currentF === c.key ? ' active' : '';
+                    const tit = escapeAttr(c.title);
+                    return `<button class="chip${active}" onclick="setEonetFilter('${pid}','${c.key}')" title="${tit}">${escapeHTML(c.label)}</button>`;
+                }).join('');
+                const listActiveE = panel.display !== 'globe' ? ' active' : '';
+                const globeActiveE = panel.display === 'globe' ? ' active' : '';
+                eonetSection = `
+                    <div class="tray-row">
+                        <span class="tray-label">FILTER</span>
+                        ${chips}
+                        <span class="tray-hint">NASA EONET open events · 14d · no API key · globe dot = NASA size when given, else footprint+recency (not Richter)</span>
+                    </div>
+                    <div class="tray-row">
+                        <span class="tray-label">DISPLAY</span>
+                        <button class="chip${listActiveE}" onclick="setGeoPanelDisplay('${pid}','list')" title="Event list">LIST</button>
+                        <button class="chip${globeActiveE}" onclick="setGeoPanelDisplay('${pid}','globe')" title="Rotating globe · polygon→centroid">GLOBE</button>
+                    </div>
+                `;
+            }
+
             let calendarSection = '';
             if (panel.type === 'calendar') {
                 const current = panel.category || 'all';
@@ -2659,6 +2997,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     ${predictionSection}
                     ${seismicSection}
                     ${stormsSection}
+                    ${eonetSection}
                     ${calendarSection}
                     ${extHoursSection}
                 </div>
@@ -2681,6 +3020,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 case 'prediction': return renderPredictionPanel(panel);
                 case 'seismic':    return renderSeismic(panel, pid);
                 case 'storms':     return renderStorms(panel, pid);
+                case 'eonet':      return renderEonet(panel, pid);
                 default:           return `<div class="no-data">Unknown panel type: ${panel.type}</div>`;
             }
         }
@@ -3748,6 +4088,41 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         name: s.name,
                     }));
             }
+            if (panel.type === 'eonet') {
+                const events = panel._eonetEvents;
+                const fk = panel.eonetFilter || 'wildfires';
+                if (!Array.isArray(events)) return [];
+                const filtered = events
+                    .filter(e => eonetEventPassesFilter(e, fk) && e.lat != null && e.lon != null)
+                    .slice(0, 120);
+                // Dot radius on globe: normalize displayScore within each hazard type in this view.
+                const byCat = {};
+                for (const ev of filtered) {
+                    const c = ev.categoryPrimary || 'unknown';
+                    if (!byCat[c]) byCat[c] = [];
+                    byCat[c].push(Number(ev.displayScore) || 1);
+                }
+                const minmax = {};
+                for (const c of Object.keys(byCat)) {
+                    const arr = byCat[c];
+                    minmax[c] = { min: Math.min(...arr), max: Math.max(...arr) };
+                }
+                return filtered.map(ev => {
+                    const c = ev.categoryPrimary || 'unknown';
+                    const mm = minmax[c];
+                    const sc = Number(ev.displayScore) || 1;
+                    let t = 0.5;
+                    if (mm && mm.max > mm.min) t = (sc - mm.min) / (mm.max - mm.min);
+                    return {
+                        lat: ev.lat,
+                        lon: ev.lon,
+                        kind: 'eonet',
+                        displayScore: ev.displayScore,
+                        cat: ev.categoryPrimary,
+                        dotNorm: t,
+                    };
+                });
+            }
             return [];
         }
 
@@ -3918,6 +4293,15 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         const kt = Number(pt.intensity) || 34;
                         r = 4 + Math.min(10, kt / 15);
                         fill = kt >= 64 ? 'rgba(255,80,40,0.95)' : 'rgba(255,200,60,0.9)';
+                    } else if (pt.kind === 'eonet') {
+                        const t = typeof pt.dotNorm === 'number' && Number.isFinite(pt.dotNorm) ? pt.dotNorm : 0.5;
+                        r = 2.1 + t * 7.4;
+                        const cat = pt.cat || '';
+                        const bright = o.depth > 0.18;
+                        const pair = EONET_GLOBE_PALETTE[cat];
+                        fill = pair
+                            ? (bright ? pair.bright : pair.dim)
+                            : (bright ? 'rgba(140,255,160,0.88)' : 'rgba(60,120,65,0.48)');
                     } else {
                         const mag = pt.mag || 4.5;
                         r = 2 + Math.min(8, (mag - 4.2) * 2.2);
@@ -4067,6 +4451,72 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         </div>
                     </div>
                 `;
+            }).join('');
+        }
+
+        function eonetBadgeCatClass(catId) {
+            const known = ['wildfires', 'volcanoes', 'dustHaze', 'drought', 'severeStorms', 'seaLakeIce', 'landslides', 'all'];
+            return known.includes(catId) ? `eonet-cat-${catId}` : 'eonet-cat-default';
+        }
+
+        function formatEonetMagnitudeShort(ev) {
+            if (ev.magnitudeValue == null || !Number.isFinite(ev.magnitudeValue)) return '';
+            const u = ev.magnitudeUnit || '';
+            const v = ev.magnitudeValue;
+            if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M ${u}`;
+            if (v >= 1e4) return `${Math.round(v / 1000)}K ${u}`;
+            if (Math.abs(v - Math.round(v)) < 1e-6) return `${Math.round(v)} ${u}`;
+            return `${v.toFixed(1)} ${u}`;
+        }
+
+        function renderEonet(panel, pid) {
+            if (panel.display === 'globe') {
+                if (panel._eonetEvents == null) {
+                    return panel._eonetFailed
+                        ? `<div class="error-message">NASA EONET FEED UNAVAILABLE — [R] to retry.</div>`
+                        : `<div class="loading">LOADING EARTH EVENTS…</div>`;
+                }
+                return renderGeoGlobeShell(pid);
+            }
+            const events = panel._eonetEvents;
+            const fk = panel.eonetFilter || 'wildfires';
+            if (events == null) {
+                return panel._eonetFailed
+                    ? `<div class="error-message">NASA EONET FEED UNAVAILABLE — [R] to retry.</div>`
+                    : `<div class="loading">LOADING EARTH EVENTS…</div>`;
+            }
+            const filtered = events.filter(e => eonetEventPassesFilter(e, fk)).slice(0, 80);
+            const mergeHint = panel._eonetPartial
+                ? `<div class="eonet-merge-hint" role="status">NASA full multi-category feed still loading in the background…</div>`
+                : '';
+            if (!filtered.length) {
+                const waitingBroader = panel._eonetPartial && (fk === 'all' || fk !== panel._eonetPartialCategory);
+                if (waitingBroader) {
+                    void scheduleEonetFullMerge();
+                    return mergeHint + `<div class="loading">LOADING EARTH EVENTS…</div>`;
+                }
+                return mergeHint + `<div class="no-data">No open NASA EONET events for this filter (last 14 days).</div>`;
+            }
+            return mergeHint + filtered.map(ev => {
+                const chip = EONET_FILTER_CHIPS.find(c => c.key === ev.categoryPrimary);
+                const badgeLabel = chip ? chip.label : String(ev.categoryPrimary || '?').slice(0, 8).toUpperCase();
+                const catCls = eonetBadgeCatClass(ev.categoryPrimary);
+                const magStr = formatEonetMagnitudeShort(ev);
+                const when = formatRelativeTime(new Date(ev.dateMs).toISOString());
+                const href = ev.link
+                    ? escapeAttr(ev.link)
+                    : escapeAttr(`https://eonet.gsfc.nasa.gov/api/v3/events/${encodeURIComponent(ev.id)}`);
+                const metaExtra = magStr ? ` · ${escapeHTML(magStr)}` : '';
+                return `
+                    <div class="event-item">
+                        <div class="event-meta">
+                            <span class="eonet-cat ${catCls}">${escapeHTML(badgeLabel)}</span>
+                            <span>${when}${metaExtra}</span>
+                        </div>
+                        <div class="event-headline">
+                            <a href="${href}" target="_blank" rel="noopener">${escapeHTML(ev.title)}</a>
+                        </div>
+                    </div>`;
             }).join('');
         }
 
@@ -4344,6 +4794,12 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 if (panel.display === 'globe') panel.memory.storms.display = 'globe';
                 else delete panel.memory.storms.display;
             }
+            if (oldType === 'eonet') {
+                panel.memory.eonet = { ...panel.memory.eonet };
+                if (panel.eonetFilter) panel.memory.eonet.eonetFilter = panel.eonetFilter;
+                if (panel.display === 'globe') panel.memory.eonet.display = 'globe';
+                else delete panel.memory.eonet.display;
+            }
 
             panel.type = newType;
             if (PANEL_TYPES[newType].usesSymbols) {
@@ -4397,6 +4853,16 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             } else {
                 delete panel.basin;
             }
+            if (newType === 'eonet') {
+                const mem = panel.memory.eonet;
+                const def = typeof mem?.eonetFilter === 'string' && EONET_FILTER_CHIPS.some(c => c.key === mem.eonetFilter)
+                    ? mem.eonetFilter
+                    : 'wildfires';
+                panel.eonetFilter = def;
+                if (mem?.display === 'globe') panel.display = 'globe';
+            } else {
+                delete panel.eonetFilter;
+            }
             if (newType === 'calendar') {
                 const mem = panel.memory.calendar;
                 panel.category = mem?.category || panel.category || 'all';
@@ -4418,6 +4884,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             delete panel._eventsFailed;
             delete panel._storms;
             delete panel._stormsFailed;
+            delete panel._eonetEvents;
+            delete panel._eonetFailed;
+            delete panel._eonetPartial;
+            delete panel._eonetPartialCategory;
             saveState();
             renderAllPanels();
             refreshAll();
@@ -4451,6 +4921,20 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             panel.basin = basin;
             saveState();
             renderAllPanels();
+        }
+
+        function setEonetFilter(pid, filterKey) {
+            const panel = state.panels[pid];
+            if (!panel || panel.type !== 'eonet') return;
+            if (!EONET_FILTER_CHIPS.some(c => c.key === filterKey)) return;
+            if (panel.eonetFilter === filterKey) return;
+            panel.eonetFilter = filterKey;
+            saveState();
+            renderAllPanels();
+            // Until the full feed arrives, chip data may be category-only — pull all hazards when ALL/other chip needs them.
+            if (panel._eonetPartial && (filterKey === 'all' || filterKey !== panel._eonetPartialCategory)) {
+                void scheduleEonetFullMerge();
+            }
         }
 
         function setCalendarCategory(pid, category) {
