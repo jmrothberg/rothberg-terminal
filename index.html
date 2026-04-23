@@ -1758,9 +1758,14 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 return await fetchQuote(symbol);
             }
             if (symbol.endsWith('=X')) {
-                const fx = await fetchForexFallback(symbol);
+                // Direct FX spot (CORS) has no intraday series — merge Yahoo 1m closes for row sparklines when both succeed.
+                const [fx, y] = await Promise.all([fetchForexFallback(symbol), fetchQuote(symbol)]);
+                if (fx && y && Array.isArray(y.closes) && y.closes.length >= 2) {
+                    return { ...fx, closes: y.closes, timestamps: y.timestamps || [] };
+                }
+                if (y) return y;
                 if (fx) return fx;
-                return await fetchQuote(symbol);
+                return null;
             }
             // Stocks, indices, commodities, bonds: Yahoo via proxy rotation.
             return await fetchQuote(symbol);
@@ -4222,7 +4227,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const cx = w / 2;
                 const cy = h / 2;
                 const baseR = Math.min(w, h) * 0.38 * zoom;
-                const spin = (performance.now() - t0) * 0.00011 + yawOff;
+                const spin = (performance.now() - t0) * -0.00011 + yawOff;
                 const pitch = pitchOff;
 
                 ctx.beginPath();
