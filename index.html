@@ -406,6 +406,105 @@
         .quote-row.nodata .quote-price,
         .quote-row.nodata .quote-change { color: var(--text-dim); }
 
+        /* EXTERNAL ACCOUNT — Fidelity Portfolio_Positions*.csv table */
+        .external-holdings-hdr,
+        .external-holdings-row,
+        .external-holdings-total {
+            display: grid;
+            grid-template-columns: minmax(56px, 1fr) 64px 72px 80px 80px 72px 72px;
+            gap: 4px 6px;
+            align-items: baseline;
+            padding: 4px 4px;
+            font-variant-numeric: tabular-nums;
+        }
+        /* Portfolio-% sort: SYM QTY PRICE VALUE %PORT COST P/L$ P/L% */
+        .external-holdings-table--portpct .external-holdings-hdr,
+        .external-holdings-table--portpct .external-holdings-row,
+        .external-holdings-table--portpct .external-holdings-total {
+            grid-template-columns: minmax(56px, 1fr) 64px 72px 80px 44px 80px 72px 72px;
+        }
+        .external-holdings-hdr {
+            font-size: 10px;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 2px;
+        }
+        .external-holdings-hdr .num { text-align: right; }
+        .external-holdings-row {
+            border-bottom: 1px dashed var(--border-color);
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .external-holdings-total {
+            margin-top: 6px;
+            padding-top: 6px;
+            border-top: 1px solid var(--border-bright);
+            font-weight: 600;
+            font-size: 11px;
+            cursor: default;
+        }
+        .external-holdings-total .num { text-align: right; }
+        .external-holdings-row--nogo {
+            cursor: default;
+        }
+        .external-holdings-row:hover { background: var(--highlight); }
+        .external-account-chip-wrap {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+        }
+        .external-account-chip-wrap .tray-tag-x {
+            flex-shrink: 0;
+            position: relative;
+            z-index: 2;
+            padding: 0 1px;
+        }
+        .external-holdings-row .eh-sym {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+        .external-holdings-row .num { text-align: right; }
+        .external-holdings-row.stale .num { color: var(--stale); }
+        .external-src-tag {
+            margin-left: 4px;
+            font-size: 8px;
+            color: var(--text-dim);
+            vertical-align: super;
+        }
+
+        .eh-sym.eh-sym--click {
+            cursor: text;
+            text-decoration: underline dotted var(--text-dim);
+            text-underline-offset: 2px;
+        }
+        .external-sym-edit {
+            width: 100%;
+            max-width: 120px;
+            box-sizing: border-box;
+            background: var(--bg-primary);
+            border: 1px solid var(--text-primary);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 10px;
+            padding: 2px 4px;
+        }
+        .eh-cost--click {
+            cursor: text;
+            text-decoration: underline dotted var(--text-dim);
+            text-underline-offset: 2px;
+        }
+        .external-cost-edit {
+            width: 100%;
+            max-width: 88px;
+            box-sizing: border-box;
+            background: var(--bg-primary);
+            border: 1px solid var(--text-primary);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 10px;
+            padding: 2px 4px;
+        }
+
         .quote-session-tag {
             display: inline-block;
             margin-left: 6px;
@@ -1333,9 +1432,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             seismic:     { label: 'SEISMIC EVENTS',      usesSymbols: false, usesNews: false, supportsGeoDisplay: true },
             storms:      { label: 'TROPICAL CYCLONES',   usesSymbols: false, usesNews: false, supportsGeoDisplay: true },
             eonet:       { label: 'EARTH EVENTS (NASA)', usesSymbols: false, usesNews: false, supportsGeoDisplay: true },
+            externalAccount: { label: 'EXTERNAL ACCOUNT', usesSymbols: false, usesNews: false },
         };
 
-        const PANEL_TYPE_ORDER = ['stocks','indices','crypto','forex','commodities','bonds','news','prediction','calendar','movers','seismic','storms','eonet'];
+        const PANEL_TYPE_ORDER = ['stocks','indices','crypto','forex','commodities','bonds','news','prediction','calendar','movers','seismic','storms','eonet','externalAccount'];
 
         const POLYMARKET_FILTERS = [
             { key: 'all',       label: 'All',       slug: null },
@@ -1592,7 +1692,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     if (p.display != null) {
                         // Geo panels may persist DISPLAY → GLOBE (same key as heatmap row pattern).
                         const keepGlobe = p.display === 'globe' && PANEL_TYPES[p.type]?.supportsGeoDisplay;
-                        if (!keepGlobe) {
+                        const keepExternalHeatmap = p.type === 'externalAccount' && p.display === 'heatmap';
+                        if (!keepGlobe && !keepExternalHeatmap) {
                             delete p.display;
                             dirty = true;
                         }
@@ -1603,6 +1704,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     delete p.display;
                     dirty = true;
                 }
+            }
+            for (const p of Object.values(state.panels)) {
+                if (p && migrateLegacyExternalSymbolOverrideKeys(p)) dirty = true;
             }
             if (dirty) saveState();
         }
@@ -2171,6 +2275,22 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             q.stale = false;
         }
 
+        /** Synthetic EXTERNAL ACCOUNT tray selection: all CSV accounts combined (chip label TOTALS!). */
+        const EXTERNAL_ACCOUNT_TOTALS_ID = '__EXTERNAL_TOTALS__';
+
+        function externalAccountTrayLabel(accountId) {
+            if (accountId === EXTERNAL_ACCOUNT_TOTALS_ID) return 'TOTALS!';
+            return String(accountId || '');
+        }
+
+        /** TOTALS! rollup excludes rows whose account was hidden ([×]); empty account name still counts. */
+        function externalRowIncludedInTotals(panel, row) {
+            const n = row && row.accountName;
+            if (!n) return true;
+            const hide = Array.isArray(panel.externalHiddenAccounts) ? panel.externalHiddenAccounts : [];
+            return !hide.includes(n);
+        }
+
         /** Re-render quote tables / heatmaps that list this symbol (sparkline picks up merged closes). */
         function rerenderQuotePanelsContainingSymbol(sym) {
             if (!sym) return;
@@ -2179,6 +2299,19 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 if (!p || !PANEL_TYPES[p.type]?.usesSymbols) continue;
                 if (!(p.symbols || []).includes(sym)) continue;
                 rerenderPanelBody(pid);
+            }
+            for (const pid of state.layout) {
+                const p = state.panels[pid];
+                if (!p || p.type !== 'externalAccount' || !p.externalImport?.rows?.length || !p.externalSelectedAccount) continue;
+                const acct = p.externalSelectedAccount;
+                const hit = acct === EXTERNAL_ACCOUNT_TOTALS_ID
+                    ? p.externalImport.rows.some(
+                        r => externalRowIncludedInTotals(p, r) && getExternalRowQuoteKey(p, r) === sym
+                    )
+                    : p.externalImport.rows.some(
+                        r => r.accountName === acct && getExternalRowQuoteKey(p, r) === sym
+                    );
+                if (hit) rerenderPanelBody(pid);
             }
         }
 
@@ -2414,6 +2547,279 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         // QUOTE REFRESH ORCHESTRATION
         // ============================================================
 
+        // ------------------------------------------------------------
+        // Fidelity Portfolio_Positions*.csv — EXTERNAL ACCOUNT panel
+        // ------------------------------------------------------------
+
+        /** CSV line parser — supports quoted fields (e.g. Account Name with commas). */
+        function parseCsvLine(line) {
+            const out = [];
+            let cur = '';
+            let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+                const c = line[i];
+                if (inQuotes) {
+                    if (c === '"') {
+                        if (line[i + 1] === '"') {
+                            cur += '"';
+                            i++;
+                        } else {
+                            inQuotes = false;
+                        }
+                    } else {
+                        cur += c;
+                    }
+                } else if (c === '"') {
+                    inQuotes = true;
+                } else if (c === ',') {
+                    out.push(cur);
+                    cur = '';
+                } else {
+                    cur += c;
+                }
+            }
+            out.push(cur);
+            return out;
+        }
+
+        function parseFidelityMoneyCell(val) {
+            if (val == null) return null;
+            const t = String(val).trim();
+            if (!t || t === '--') return null;
+            let neg = false;
+            let s = t.replace(/,/g, '');
+            if (s.startsWith('(') && s.endsWith(')')) {
+                neg = true;
+                s = s.slice(1, -1).trim();
+            }
+            if (s.startsWith('-')) {
+                neg = !neg;
+                s = s.slice(1).trim();
+            }
+            s = s.replace(/^\+/, '').replace(/\$/g, '').replace(/%$/, '').trim();
+            const n = parseFloat(s);
+            if (!Number.isFinite(n)) return null;
+            return neg ? -n : n;
+        }
+
+        function parseFidelityNumCell(val) {
+            if (val == null) return null;
+            const t = String(val).trim().replace(/,/g, '');
+            if (!t || t === '--') return null;
+            const n = parseFloat(t);
+            return Number.isFinite(n) ? n : null;
+        }
+
+        /** Map Fidelity CSV symbol to Yahoo Finance key, or null if we should not fetch quotes. */
+        function externalCsvSymbolToQuoteKey(symbol) {
+            const raw = String(symbol || '').trim();
+            if (!raw) return null;
+            const u = raw.toUpperCase();
+            if (u.includes('**')) return null;
+            if (/ESC/i.test(raw) && /\d/.test(raw)) return null;
+            if (/^[0-9]{5,}[A-Z0-9]*$/i.test(u) && u.length >= 8) return null;
+            const map = { BRKB: 'BRK-B', BRKA: 'BRK-A' };
+            if (map[u]) return map[u];
+            return u;
+        }
+
+        /** User-entered Yahoo ticker (trim + common Fidelity→Yahoo fixes). */
+        function normalizeExternalUserSymbol(raw) {
+            const t = String(raw || '').trim().toUpperCase().replace(/\s+/g, '');
+            if (!t) return '';
+            const map = { BRKB: 'BRK-B', BRKA: 'BRK-A' };
+            return map[t] || t;
+        }
+
+        /** Override map key = Fidelity CSV `Symbol` cell (e.g. CUSIP) — survives re-import next week. */
+        function externalOverrideKeyFromRow(row) {
+            return (row && row.symbol != null) ? String(row.symbol).trim() : '';
+        }
+
+        /**
+         * Yahoo key for one imported row. Overrides are keyed by CSV symbol (CUSIP / restricted id), not row index.
+         */
+        function getExternalRowQuoteKey(panel, row) {
+            const csvKey = externalOverrideKeyFromRow(row);
+            const ov = csvKey && panel.externalSymbolOverrides && panel.externalSymbolOverrides[csvKey];
+            if (ov != null && String(ov).trim()) {
+                return externalCsvSymbolToQuoteKey(normalizeExternalUserSymbol(ov));
+            }
+            return externalCsvSymbolToQuoteKey(row.symbol);
+        }
+
+        /** Migrate old row-index overrides { "0":"BFLY" } → { "12499D575":"BFLY" } using current import rows. */
+        function migrateLegacyExternalSymbolOverrideKeys(panel) {
+            if (!panel?.externalSymbolOverrides || !panel.externalImport?.rows?.length) return false;
+            const rows = panel.externalImport.rows;
+            const o = panel.externalSymbolOverrides;
+            const next = { ...o };
+            let changed = false;
+            for (const k of Object.keys(o)) {
+                if (!/^\d+$/.test(k)) continue;
+                const idx = parseInt(k, 10);
+                if (!Number.isFinite(idx) || idx < 0 || idx >= rows.length) continue;
+                const sym = externalOverrideKeyFromRow(rows[idx]);
+                if (!sym) continue;
+                const v = o[k];
+                delete next[k];
+                if (v != null && String(v).trim()) next[sym] = String(v).trim();
+                changed = true;
+            }
+            if (!changed) return false;
+            panel.externalSymbolOverrides = next;
+            if (panel.memory?.externalAccount) {
+                panel.memory.externalAccount.externalSymbolOverrides = { ...next };
+            }
+            return true;
+        }
+
+        function getExternalAccountNamesFromImport(extImp) {
+            const rows = extImp?.rows;
+            if (!Array.isArray(rows) || !rows.length) return [];
+            const seen = new Set();
+            const out = [];
+            for (const r of rows) {
+                const n = r.accountName;
+                if (!n || seen.has(n)) continue;
+                seen.add(n);
+                out.push(n);
+            }
+            return out;
+        }
+
+        /** Account names from CSV minus user-hidden accounts, plus synthetic TOTALS! first (EXTERNAL ACCOUNT tray). */
+        function getExternalAccountNamesForPanel(panel) {
+            if (!panel?.externalImport?.rows?.length) return [];
+            const all = getExternalAccountNamesFromImport(panel.externalImport);
+            const hide = Array.isArray(panel?.externalHiddenAccounts) ? panel.externalHiddenAccounts : [];
+            const hideSet = new Set(hide);
+            const real = all.filter(n => n && !hideSet.has(n));
+            return [EXTERNAL_ACCOUNT_TOTALS_ID, ...real];
+        }
+
+        /** Canonical quantity string for cost-basis override keys (ticker|qty). */
+        function normalizeQtyForCostKey(qty) {
+            if (qty == null || !Number.isFinite(Number(qty))) return '';
+            const n = Number(qty);
+            if (Number.isInteger(n)) return String(n);
+            return String(Number(n.toFixed(8)).toString());
+        }
+
+        /** Ticker segment for cost key: Yahoo symbol when quotable, else CSV Symbol. */
+        function tickerForCostBasisKey(panel, row) {
+            const yk = getExternalRowQuoteKey(panel, row);
+            if (yk) return String(yk).toUpperCase();
+            const ck = externalOverrideKeyFromRow(row);
+            return ck ? ck.toUpperCase() : '';
+        }
+
+        /** Manual cost basis overrides — stable when CSV row order changes (ticker|qtyNorm). */
+        function externalCostBasisOverrideKey(panel, row) {
+            const t = tickerForCostBasisKey(panel, row);
+            const q = normalizeQtyForCostKey(row.quantity);
+            if (!t || !q) return '';
+            return `${t}|${q}`;
+        }
+
+        /** Quantity for a ticker|qty cost key (first matching import row). */
+        function externalQuantityForCostBasisKey(panel, costKey) {
+            if (!costKey || !panel?.externalImport?.rows?.length) return null;
+            for (const r of panel.externalImport.rows) {
+                if (externalCostBasisOverrideKey(panel, r) !== costKey) continue;
+                const q = r.quantity;
+                if (q != null && Number.isFinite(Number(q))) return Number(q);
+            }
+            return null;
+        }
+
+        function effectiveCostBasis(panel, row) {
+            if (row.costBasisTotal != null && Number.isFinite(row.costBasisTotal)) return row.costBasisTotal;
+            const k = externalCostBasisOverrideKey(panel, row);
+            if (!k || !panel.externalCostBasisOverrides) return null;
+            const v = panel.externalCostBasisOverrides[k];
+            return Number.isFinite(v) ? v : null;
+        }
+
+        /** All cost keys present in current import (every row) — for merge on CSV reload. */
+        function collectExternalCostBasisKeysAcrossImport(panel) {
+            const keys = new Set();
+            if (!panel?.externalImport?.rows?.length) return keys;
+            for (const r of panel.externalImport.rows) {
+                const k = externalCostBasisOverrideKey(panel, r);
+                if (k) keys.add(k);
+            }
+            return keys;
+        }
+
+        function parseFidelityPositionsCsv(text) {
+            const raw = String(text || '').replace(/^\uFEFF/, '');
+            const lines = raw.split(/\r?\n/).filter(l => l.length > 0);
+            if (lines.length < 2) return { rows: [], accountNames: [] };
+            const headers = parseCsvLine(lines[0]).map(h => h.trim());
+            const idx = (label) => headers.findIndex(h => h.toLowerCase() === label.toLowerCase());
+            const iAcctNum = idx('Account Number');
+            const iAcctName = idx('Account Name');
+            const iSym = idx('Symbol');
+            if (iSym < 0 || iAcctName < 0) return { rows: [], accountNames: [] };
+            const iDesc = idx('Description');
+            const iQty = idx('Quantity');
+            const iLast = idx('Last Price');
+            const iCurVal = idx('Current Value');
+            const iCost = idx('Cost Basis Total');
+            const iTgl = idx("Today's Gain/Loss Dollar");
+            const iTtl = idx('Total Gain/Loss Dollar');
+            const iType = idx('Type');
+            const rows = [];
+            const accountNames = [];
+            const seenAcct = new Set();
+            for (let li = 1; li < lines.length; li++) {
+                const cells = parseCsvLine(lines[li]);
+                const cell = (j) => (j >= 0 && j < cells.length ? cells[j].trim() : '');
+                const accountName = cell(iAcctName);
+                const sym = cell(iSym);
+                if (!sym && !accountName) continue;
+                const row = {
+                    accountNumber: iAcctNum >= 0 ? cell(iAcctNum) : '',
+                    accountName,
+                    symbol: sym,
+                    description: iDesc >= 0 ? cell(iDesc) : '',
+                    quantity: parseFidelityNumCell(iQty >= 0 ? cells[iQty] : null),
+                    // Parsed for possible future use — EXTERNAL ACCOUNT UI uses live Yahoo quotes only (no CSV Last Price).
+                    lastPriceCsv: parseFidelityMoneyCell(iLast >= 0 ? cells[iLast] : null),
+                    currentValueCsv: parseFidelityMoneyCell(iCurVal >= 0 ? cells[iCurVal] : null),
+                    costBasisTotal: parseFidelityMoneyCell(iCost >= 0 ? cells[iCost] : null),
+                    todayGainLossCsv: parseFidelityMoneyCell(iTgl >= 0 ? cells[iTgl] : null),
+                    totalGainLossCsv: parseFidelityMoneyCell(iTtl >= 0 ? cells[iTtl] : null),
+                    rowType: iType >= 0 ? cell(iType) : '',
+                };
+                rows.push(row);
+                if (accountName && !seenAcct.has(accountName)) {
+                    seenAcct.add(accountName);
+                    accountNames.push(accountName);
+                }
+            }
+            return { rows, accountNames };
+        }
+
+        function collectExternalAccountQuoteSymbols() {
+            const set = new Set();
+            for (const pid of state.layout) {
+                const p = state.panels[pid];
+                if (!p || p.type !== 'externalAccount' || !p.externalImport?.rows?.length) continue;
+                const acct = p.externalSelectedAccount;
+                if (!acct) continue;
+                p.externalImport.rows.forEach((r) => {
+                    if (acct === EXTERNAL_ACCOUNT_TOTALS_ID) {
+                        if (!externalRowIncludedInTotals(p, r)) return;
+                    } else if (r.accountName !== acct) return;
+                    const qk = getExternalRowQuoteKey(p, r);
+                    if (qk) set.add(qk);
+                });
+            }
+            return Array.from(set);
+        }
+
         function collectAllSymbols() {
             const set = new Set();
             for (const pid of state.layout) {
@@ -2424,6 +2830,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 if (panel?.type === 'movers') {
                     // Movers needs all loaded stock-type symbols; no extra fetch needed.
                 }
+            }
+            for (const s of collectExternalAccountQuoteSymbols()) {
+                set.add(s);
             }
             // VIX is useful for movers/sentiment even if user didn't add it
             if (!set.has('^VIX')) set.add('^VIX');
@@ -2934,6 +3343,21 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const c = CALENDAR_CATEGORIES.find(x => x.key === panel.category);
                 return ` <span style="color:var(--text-secondary);font-weight:400;">· ${c ? c.label.toUpperCase() : panel.category.toUpperCase()}</span>`;
             }
+            if (panel.type === 'externalAccount') {
+                const fn = panel.externalImport?.fileName;
+                const ac = panel.externalSelectedAccount;
+                const bits = [];
+                if (fn) bits.push(truncate(fn, 22));
+                if (ac) bits.push(truncate(externalAccountTrayLabel(ac), 18));
+                if (panel.display === 'heatmap') bits.push('HEAT MAP');
+                else if (panel.sort?.key === 'symbol') bits.push(panel.sort.dir === 'desc' ? 'Z→A' : 'A→Z');
+                else if (panel.sort?.key === 'portfolioPct') {
+                    bits.push(panel.sort.dir === 'asc' ? '% LOW→HIGH' : '% HIGH→LOW');
+                }
+                if (bits.length) {
+                    return ` <span style="color:var(--text-secondary);font-weight:400;">· ${escapeHTML(bits.join(' · '))}</span>`;
+                }
+            }
             return extTag;
         }
 
@@ -3134,6 +3558,60 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 `;
             }
 
+            let externalAccountSection = '';
+            if (panel.type === 'externalAccount') {
+                const fn = panel.externalImport?.fileName;
+                const names = panel.externalImport ? getExternalAccountNamesForPanel(panel) : [];
+                const fileRow = fn
+                    ? `<span class="tray-tag">${escapeHTML(fn)}<span class="tray-tag-x" onclick="clearExternalAccountImport('${pid}')">[×]</span></span>`
+                    : '<span class="no-data">(no file)</span>';
+                const chips = names.map((n, i) => {
+                    const active = n === panel.externalSelectedAccount ? ' active' : '';
+                    const lab = externalAccountTrayLabel(n);
+                    const tit = escapeAttr(lab);
+                    const hideX = n === EXTERNAL_ACCOUNT_TOTALS_ID
+                        ? ''
+                        : `<span class="tray-tag-x" role="button" tabindex="0" onclick="event.preventDefault();event.stopPropagation();externalAccountHideAccountByIndex('${escapeAttr(pid)}',${i})">[×]</span>`;
+                    return `<span class="external-account-chip-wrap"><button type="button" class="chip${active}" onclick="setExternalAccountSelection('${pid}',${i})" title="${tit}">${escapeHTML(truncate(lab, 28))}</button>${hideX}</span>`;
+                }).join('');
+                externalAccountSection = `
+                    <div class="tray-row">
+                        <span class="tray-label">LOAD</span>
+                        <button type="button" class="header-btn" onclick="promptExternalAccountCsv('${pid}')">LOAD CSV</button>
+                        <span class="tray-hint">Fidelity → Positions → export Portfolio_Positions*.csv · picker starts in Downloads when the browser supports it</span>
+                        <input type="file" id="external-csv-${pid}" accept=".csv,text/csv" style="display:none"
+                               onchange="onExternalAccountCsvInput('${pid}',this)">
+                    </div>
+                    <div class="tray-row">
+                        <span class="tray-label">FILE</span>
+                        <div class="tray-tags">${fileRow}</div>
+                    </div>
+                    <div class="tray-row">
+                        <span class="tray-label">ACCOUNT</span>
+                        ${names.length ? chips : '<span class="no-data">Load a CSV first</span>'}
+                    </div>
+                    ${panel.externalImport?.rows?.length ? `
+                    <div class="tray-row">
+                        <span class="tray-label">DISPLAY</span>
+                        ${(() => {
+                            const sort = panel.sort || { key: null, dir: null };
+                            const heatOn = panel.display === 'heatmap';
+                            const symLabel = sort.key === 'symbol' ? (sort.dir === 'desc' ? 'Z→A' : 'A→Z') : 'A↕Z';
+                            const portLabel = sort.key === 'portfolioPct' ? (sort.dir === 'asc' ? '% LOW→HIGH' : '% HIGH→LOW') : '% PORT';
+                            const symActive = !heatOn && sort.key === 'symbol' ? ' active' : '';
+                            const portActive = !heatOn && sort.key === 'portfolioPct' ? ' active' : '';
+                            const noneActive = !heatOn && !sort.key ? ' active' : '';
+                            const heatActive = heatOn ? ' active' : '';
+                            return `
+                        <button class="chip${noneActive}" onclick="cyclePanelSort('${pid}','none')" title="Table · CSV / account order">ENTERED</button>
+                        <button class="chip${symActive}" onclick="cyclePanelSort('${pid}','symbol')" title="Table · A→Z / Z→A">${symLabel}</button>
+                        <button class="chip${portActive}" onclick="cyclePanelSort('${pid}','portfolioPct')" title="Combined symbols · % of portfolio value">${portLabel}</button>
+                        <button class="chip${heatActive}" onclick="togglePanelHeatmapDisplay('${pid}')" title="Treemap · tile size = value, color = day change%">HEAT MAP</button>`;
+                        })()}
+                    </div>` : ''}
+                `;
+            }
+
             return `
                 <div class="tray-inner">
                     <div class="tray-row">
@@ -3147,6 +3625,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     ${stormsSection}
                     ${eonetSection}
                     ${calendarSection}
+                    ${externalAccountSection}
                     ${extHoursSection}
                 </div>
             `;
@@ -3169,6 +3648,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 case 'seismic':    return renderSeismic(panel, pid);
                 case 'storms':     return renderStorms(panel, pid);
                 case 'eonet':      return renderEonet(panel, pid);
+                case 'externalAccount': return panel.display === 'heatmap'
+                    ? renderExternalAccountHeatMap(panel, pid)
+                    : renderExternalAccountHoldings(panel, pid);
                 default:           return `<div class="no-data">Unknown panel type: ${panel.type}</div>`;
             }
         }
@@ -3474,7 +3956,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     heatmapHydrating.delete(sym);
                     // Re-render just the heatmap panel (or all, cheap).
                     const panel = state.panels[pid];
-                    if (panel && PANEL_TYPES[panel.type]?.usesSymbols && panel.display === 'heatmap') {
+                    if (panel && panel.display === 'heatmap' && (
+                        PANEL_TYPES[panel.type]?.usesSymbols || panel.type === 'externalAccount'
+                    )) {
                         const content = document.getElementById(`content-${pid}`);
                         if (content) content.innerHTML = renderPanelContent(pid);
                     }
@@ -4138,6 +4622,418 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     }
                     return '$' + value.toFixed(value < 1 ? 4 : 2);
             }
+        }
+
+        /** EXTERNAL ACCOUNT table: whole dollars (no cents) for PRICE / VALUE / COST / totals. */
+        function formatExternalUsdWhole(value) {
+            if (value == null || Number.isNaN(value) || !Number.isFinite(Number(value))) return '—';
+            const n = Math.round(Number(value));
+            const abs = Math.abs(n);
+            const body = abs.toLocaleString('en-US', { maximumFractionDigits: 0 });
+            return (n < 0 ? '-$' : '$') + body;
+        }
+
+        /** P/L $ in external table: signed whole dollars. */
+        function formatExternalUsdPlSigned(value) {
+            if (value == null || !Number.isFinite(value)) return '—';
+            const n = Math.round(value);
+            const sign = n > 0 ? '+' : (n < 0 ? '-' : '');
+            const abs = Math.abs(n);
+            const body = abs.toLocaleString('en-US', { maximumFractionDigits: 0 });
+            return sign + '$' + body;
+        }
+
+        /** EXTERNAL ACCOUNT PRICE column: always two decimal places (live quote / weighted avg). */
+        function formatExternalUsdPrice2(value) {
+            if (value == null || Number.isNaN(value) || !Number.isFinite(Number(value))) return '—';
+            const n = Number(value);
+            const neg = n < 0;
+            const abs = Math.abs(n);
+            const body = abs >= 1000
+                ? abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                : abs.toFixed(2);
+            return (neg ? '-$' : '$') + body;
+        }
+
+        function externalRowMergeKey(panel, row) {
+            const qk = getExternalRowQuoteKey(panel, row);
+            if (qk) return `q:${qk}`;
+            const ck = externalOverrideKeyFromRow(row);
+            if (ck) return `c:${ck.toUpperCase()}`;
+            return `u:${String(row.symbol || '')}|${normalizeQtyForCostKey(row.quantity)}`;
+        }
+
+        /** Detail rows for the selected account or TOTALS! (each item keeps CSV file index). */
+        function externalRowsDetailForView(panel) {
+            const imp = panel.externalImport;
+            const acct = panel.externalSelectedAccount;
+            if (!imp?.rows?.length || !acct) return [];
+            const names = getExternalAccountNamesForPanel(panel);
+            if (!names.includes(acct)) return [];
+            const isTotals = acct === EXTERNAL_ACCOUNT_TOTALS_ID;
+            return imp.rows
+                .map((r, idx) => ({ r, idx }))
+                .filter(({ r }) => (isTotals ? externalRowIncludedInTotals(panel, r) : r.accountName === acct));
+        }
+
+        /** Merge identical Yahoo symbols (or same CSV id) for % of portfolio + heat map. */
+        function externalAggregatedGroups(panel, detailRows) {
+            const map = new Map();
+            for (const { r, idx } of detailRows) {
+                const k = externalRowMergeKey(panel, r);
+                if (!map.has(k)) map.set(k, { mergeKey: k, rows: [], minIdx: idx });
+                const g = map.get(k);
+                g.rows.push(r);
+                g.minIdx = Math.min(g.minIdx, idx);
+            }
+            const groups = [];
+            for (const g of map.values()) {
+                let sumQty = 0;
+                let sumVal = 0;
+                let sumCost = 0;
+                let costLines = 0;
+                for (const r of g.rows) {
+                    const qty = r.quantity != null && Number.isFinite(Number(r.quantity)) ? Number(r.quantity) : 0;
+                    sumQty += qty;
+                    const qk = getExternalRowQuoteKey(panel, r);
+                    const q = qk ? quoteCache[qk] : null;
+                    const v = q ? resolveQuoteView(q, { extendedHours: false }) : null;
+                    const price = v && Number.isFinite(v.price) ? v.price : null;
+                    if (price != null && qty) sumVal += qty * price;
+                    const cb = effectiveCostBasis(panel, r);
+                    if (cb != null && Number.isFinite(cb)) {
+                        sumCost += cb;
+                        costLines++;
+                    }
+                }
+                const quoteKey = getExternalRowQuoteKey(panel, g.rows[0]);
+                const q = quoteKey ? quoteCache[quoteKey] : null;
+                const chPct = q && Number.isFinite(q.changePercent) ? q.changePercent : null;
+                groups.push({
+                    mergeKey: g.mergeKey,
+                    rows: g.rows,
+                    minIdx: g.minIdx,
+                    quoteKey,
+                    quantity: sumQty,
+                    aggValue: sumVal,
+                    aggCost: costLines ? sumCost : null,
+                    wavgPrice: sumQty > 0 && sumVal > 0 ? sumVal / sumQty : null,
+                    changePercent: chPct,
+                    multi: g.rows.length > 1,
+                });
+            }
+            const totalVal = groups.reduce((s, x) => s + (Number.isFinite(x.aggValue) ? x.aggValue : 0), 0);
+            for (const x of groups) {
+                x.portfolioPct = totalVal > 0 && x.aggValue ? (x.aggValue / totalVal) * 100 : null;
+            }
+            return { groups, totalValue: totalVal };
+        }
+
+        /** EXTERNAL ACCOUNT heat map: combined symbols, tile weight = market value, color = day change%. */
+        function renderExternalAccountHeatMap(panel, pid) {
+            const detail = externalRowsDetailForView(panel);
+            if (!detail.length) {
+                return `<div class="no-data">No positions for this account.</div>`;
+            }
+            const { groups } = externalAggregatedGroups(panel, detail);
+            const items = groups
+                .filter(g => g.quoteKey)
+                .map(g => ({
+                    sym: g.quoteKey,
+                    changePercent: g.changePercent,
+                    weight: Math.max(Number(g.aggValue) || 0, 1e-6),
+                }));
+            if (!items.length) {
+                return `<div class="no-data">No quotable symbols — switch to <strong>ENTERED</strong> and map <strong>SYM</strong> for each line.</div>`;
+            }
+            items.sort((a, b) => b.weight - a.weight);
+            const capped = items.slice(0, HEATMAP_MAX_TILES);
+            const panelId = Object.keys(state.panels).find(k => state.panels[k] === panel) || pid;
+            const W = 560, H = 320;
+            const headerH = 14;
+            const inner = { x: 0, y: headerH, w: W, h: H - headerH };
+            const treemapItems = capped.map(it => ({ key: it.sym, weight: it.weight, ref: it }));
+            const tiles = squarifiedTreemap(treemapItems, inner);
+            let tilesHTML = `<div class="hm-sector-hdr" style="left:0;top:0;width:${W}px;height:${headerH}px;">PORTFOLIO (by value)</div>`;
+            for (const t of tiles) {
+                const it = t.ref;
+                const bg = heatColor(it.changePercent);
+                const pct = it.changePercent == null ? '—'
+                    : `${it.changePercent > 0 ? '+' : ''}${it.changePercent.toFixed(2)}%`;
+                const showPct = t.rect.w > 48 && t.rect.h > 28;
+                const style = `left:${t.rect.x}px;top:${t.rect.y}px;width:${t.rect.w}px;height:${t.rect.h}px;background:${bg};`;
+                tilesHTML += `<div class="hm-tile" style="${style}" title="${escapeAttr(it.sym)} ${pct}" onclick="openDrilldown('${escapeAttr(it.sym)}')">
+                        <span class="hm-sym">${escapeHTML(it.sym)}</span>
+                        ${showPct ? `<span class="hm-pct">${pct}</span>` : ''}
+                    </div>`;
+            }
+            return `<div class="hm-wrap" data-pid="${escapeAttr(panelId)}" style="width:${W}px;height:${H}px;">${tilesHTML}</div>`;
+        }
+
+        /** EXTERNAL ACCOUNT — holdings for selected Fidelity CSV account (live Yahoo quotes only; SYM click = map ticker). */
+        function renderExternalAccountHoldings(panel, pid) {
+            const imp = panel.externalImport;
+            const acct = panel.externalSelectedAccount;
+            if (!imp?.rows?.length) {
+                return `<div class="no-data">Use <strong>LOAD CSV</strong> in the tray — Fidelity → Positions → Download <code style="font-size:10px;color:var(--text-secondary);">Portfolio_Positions*.csv</code>.</div>`;
+            }
+            const names = getExternalAccountNamesForPanel(panel);
+            if (!acct || !names.includes(acct)) {
+                return `<div class="no-data">Select an <strong>ACCOUNT</strong> in the tray.</div>`;
+            }
+            const isTotals = acct === EXTERNAL_ACCOUNT_TOTALS_ID;
+            const detailRaw = externalRowsDetailForView(panel);
+            if (!detailRaw.length) {
+                return isTotals
+                    ? `<div class="no-data"><strong>TOTALS!</strong> has no rows — every account may be hidden, or the CSV has no positions. Use <strong>FILE [×]</strong> to clear, or show accounts by loading a CSV that still lists them.</div>`
+                    : `<div class="no-data">No rows for this account in the CSV.</div>`;
+            }
+            const usePortSort = !!(panel.sort && panel.sort.key === 'portfolioPct');
+            const editCsvKey = panel._externalSymEditCsvKey;
+            const editCostKey = panel._externalCostEditKey;
+            let sumValue = 0;
+            let sumPlD = 0;
+            let sumCost = 0;
+            let hadAnyPl = false;
+            let hadAnyCost = false;
+
+            let viewList;
+            if (usePortSort) {
+                const { groups } = externalAggregatedGroups(panel, detailRaw);
+                const inv = (panel.sort && panel.sort.dir === 'asc') ? 1 : -1;
+                groups.sort((a, b) => {
+                    const pa = a.portfolioPct != null ? a.portfolioPct : -1;
+                    const pb = b.portfolioPct != null ? b.portfolioPct : -1;
+                    const c = (pa - pb) * inv;
+                    if (c) return c;
+                    return a.minIdx - b.minIdx;
+                });
+                viewList = groups.map(g => ({ kind: 'g', g }));
+            } else {
+                let rowsWithIdx = detailRaw.slice();
+                const sk = panel.sort && panel.sort.key;
+                if (sk === 'symbol') {
+                    const inv = panel.sort.dir === 'desc' ? -1 : 1;
+                    rowsWithIdx.sort((a, b) => {
+                        const ka = (getExternalRowQuoteKey(panel, a.r) || a.r.symbol || '').toUpperCase();
+                        const kb = (getExternalRowQuoteKey(panel, b.r) || b.r.symbol || '').toUpperCase();
+                        const c = ka.localeCompare(kb) * inv;
+                        if (c) return c;
+                        if (isTotals) return (a.r.accountName || '').localeCompare(b.r.accountName || '');
+                        return a.idx - b.idx;
+                    });
+                } else {
+                    rowsWithIdx.sort((a, b) => {
+                        if (a.idx !== b.idx) return a.idx - b.idx;
+                        if (isTotals) return (a.r.accountName || '').localeCompare(b.r.accountName || '');
+                        return 0;
+                    });
+                }
+                viewList = rowsWithIdx.map(x => ({ kind: 'd', r: x.r, idx: x.idx }));
+            }
+
+            const tableWrapCls = 'external-holdings-table' + (usePortSort ? ' external-holdings-table--portpct' : '');
+            const hdr = usePortSort
+                ? `<div class="external-holdings-hdr">
+                <span>SYM</span><span class="num">QTY</span><span class="num">PRICE</span><span class="num">VALUE</span><span class="num">%PORT</span><span class="num">COST</span><span class="num">P/L $</span><span class="num">P/L %</span>
+            </div>`
+                : `<div class="external-holdings-hdr">
+                <span>SYM</span><span class="num">QTY</span><span class="num">PRICE</span><span class="num">VALUE</span><span class="num">COST</span><span class="num">P/L $</span><span class="num">P/L %</span>
+            </div>`;
+
+            const body = viewList.map((item) => {
+                if (item.kind === 'g') {
+                    const g = item.g;
+                    const r0 = g.rows[0];
+                    const csvKey0 = externalOverrideKeyFromRow(r0);
+                    const qk = g.quoteKey;
+                    const q = qk ? quoteCache[qk] : null;
+                    const v = q ? resolveQuoteView(q, { extendedHours: false }) : null;
+                    const priceOne = v && Number.isFinite(v.price) ? v.price : null;
+                    const qtyAgg = g.quantity;
+                    const value = Number.isFinite(g.aggValue) ? g.aggValue : null;
+                    if (value != null && Number.isFinite(value)) sumValue += value;
+                    const costBasis = g.aggCost != null && Number.isFinite(g.aggCost) ? g.aggCost : null;
+                    let plD = null;
+                    let plPct = null;
+                    let plCls = 'neutral';
+                    if (value != null && costBasis != null) {
+                        plD = value - costBasis;
+                        plPct = costBasis !== 0 ? (plD / costBasis) * 100 : null;
+                        plCls = plD > 0 ? 'positive' : plD < 0 ? 'negative' : 'neutral';
+                        if (plD != null && Number.isFinite(plD)) {
+                            sumPlD += plD;
+                            hadAnyPl = true;
+                        }
+                    }
+                    if (costBasis != null && Number.isFinite(costBasis)) {
+                        sumCost += costBasis;
+                        hadAnyCost = true;
+                    }
+                    let priceStr = '—';
+                    if (qk && !q) priceStr = '<span style="color:var(--text-dim);">loading…</span>';
+                    else if (g.wavgPrice != null && Number.isFinite(g.wavgPrice)) priceStr = formatExternalUsdPrice2(g.wavgPrice);
+                    else if (priceOne != null && qtyAgg) priceStr = formatExternalUsdPrice2(priceOne);
+                    const qtyStr = qtyAgg ? (Number.isInteger(qtyAgg) ? String(qtyAgg) : String(qtyAgg)) : '—';
+                    const valStr = value != null ? formatExternalUsdWhole(value) : '—';
+                    const portStr = g.portfolioPct != null ? `${Math.round(g.portfolioPct)}%` : '—';
+                    let costCell = '';
+                    if (g.multi) {
+                        costCell = `<span class="num">${costBasis != null ? formatExternalUsdWhole(costBasis) : '—'}</span>`;
+                    } else {
+                        const costKey = externalCostBasisOverrideKey(panel, r0);
+                        const costKeyEnc = encodeURIComponent(costKey || '_');
+                        let costStr = '—';
+                        if (costBasis != null && Number.isFinite(costBasis)) costStr = formatExternalUsdWhole(costBasis);
+                        if (editCostKey && costKey && editCostKey === costKey) {
+                            const curC = escapeAttr(
+                                (costBasis != null && Number.isFinite(costBasis)) ? String(costBasis) : ''
+                            );
+                            costCell = `<input type="text" class="external-cost-edit" id="ext-cost-edit-${pid}" value="${curC}"
+                                onclick="event.stopPropagation()" onkeydown="externalAccountCostEditKeydown(event,'${escapeAttr(pid)}','${costKeyEnc}')"
+                                onblur="externalAccountCommitCostBasis('${escapeAttr(pid)}','${costKeyEnc}',this.value)" placeholder="Avg $/sh">`;
+                        } else if (costKey && (costBasis == null || !Number.isFinite(costBasis))) {
+                            costCell = `<span class="num eh-cost--click" title="Enter average cost per share; Enter saves total basis (× QTY), keyed by ticker + quantity." onclick="event.stopPropagation();externalAccountStartCostEdit('${escapeAttr(pid)}','${costKeyEnc}')">—</span>`;
+                        } else {
+                            costCell = `<span class="num">${costStr}</span>`;
+                        }
+                    }
+                    const plStr = plD != null ? formatExternalUsdPlSigned(plD) : '—';
+                    const plPStr = plPct != null ? ((plPct > 0 ? '+' : '') + Math.round(plPct) + '%') : '—';
+                    const staleCls = q && q.stale ? ' stale' : '';
+                    const ov0 = csvKey0 && panel.externalSymbolOverrides && panel.externalSymbolOverrides[csvKey0];
+                    let symLabel0 = ov0 ? `${escapeHTML(String(ov0))}<span class="name"> ←${escapeHTML(r0.symbol)}</span>` : escapeHTML(r0.symbol);
+                    if (g.multi) symLabel0 += `<span class="name"> (${g.rows.length} lines)</span>`;
+                    else if (isTotals && r0.accountName) {
+                        symLabel0 += `<span class="name"> · ${escapeHTML(truncate(r0.accountName, 22))}</span>`;
+                    }
+                    const csvKeyEnc0 = encodeURIComponent(csvKey0 || '_');
+                    let symCell;
+                    if (g.multi) {
+                        symCell = `<span class="eh-sym">${symLabel0}</span>`;
+                    } else if (csvKey0 && editCsvKey === csvKey0) {
+                        const curVal = escapeAttr(ov0 || '');
+                        symCell = `<input type="text" class="external-sym-edit" id="ext-sym-edit-${pid}" value="${curVal}"
+                            onclick="event.stopPropagation()" onkeydown="externalAccountSymEditKeydown(event,'${escapeAttr(pid)}','${csvKeyEnc0}')"
+                            onblur="externalAccountCommitSymEdit('${escapeAttr(pid)}','${csvKeyEnc0}',this.value)" placeholder="Yahoo symbol">`;
+                    } else if (csvKey0) {
+                        symCell = `<span class="eh-sym eh-sym--click" title="Map this CSV identifier to a Yahoo ticker — saved by this number, survives next CSV import." onclick="event.stopPropagation();externalAccountStartSymEdit('${escapeAttr(pid)}','${csvKeyEnc0}')">${symLabel0}</span>`;
+                    } else {
+                        symCell = `<span class="eh-sym">${symLabel0}</span>`;
+                    }
+                    const rowCls = qk ? 'external-holdings-row' : 'external-holdings-row external-holdings-row--nogo';
+                    const rowClick = qk ? `onclick="openDrilldown('${escapeAttr(qk)}')"` : '';
+                    return `<div class="${rowCls}${staleCls}" ${rowClick}>
+                    ${symCell}
+                    <span class="num">${escapeHTML(qtyStr)}</span>
+                    <span class="num">${priceStr}</span>
+                    <span class="num">${valStr}</span>
+                    <span class="num">${portStr}</span>
+                    ${costCell}
+                    <span class="num ${plCls}">${plStr}</span>
+                    <span class="num ${plCls}">${plPStr}</span>
+                </div>`;
+                }
+                const r = item.r;
+                const csvKey = externalOverrideKeyFromRow(r);
+                const qk = getExternalRowQuoteKey(panel, r);
+                const q = qk ? quoteCache[qk] : null;
+                const v = q ? resolveQuoteView(q, { extendedHours: false }) : null;
+                const price = v && Number.isFinite(v.price) ? v.price : null;
+                const qty = r.quantity;
+                const value = (qty != null && price != null) ? qty * price : null;
+                if (value != null && Number.isFinite(value)) sumValue += value;
+
+                const costBasis = effectiveCostBasis(panel, r);
+                let plD = null;
+                let plPct = null;
+                let plCls = 'neutral';
+                if (qty != null && price != null && costBasis != null) {
+                    const mv = qty * price;
+                    plD = mv - costBasis;
+                    plPct = costBasis !== 0 ? (plD / costBasis) * 100 : null;
+                    plCls = plD > 0 ? 'positive' : plD < 0 ? 'negative' : 'neutral';
+                    if (plD != null && Number.isFinite(plD)) {
+                        sumPlD += plD;
+                        hadAnyPl = true;
+                    }
+                }
+                if (costBasis != null && Number.isFinite(costBasis)) {
+                    sumCost += costBasis;
+                    hadAnyCost = true;
+                }
+                let priceStr = '—';
+                if (qk && !q) priceStr = '<span style="color:var(--text-dim);">loading…</span>';
+                else if (price != null) priceStr = formatExternalUsdPrice2(price);
+
+                let qtyStr = '—';
+                if (qty != null) {
+                    qtyStr = Number.isInteger(qty) ? String(qty) : String(qty);
+                }
+                const valStr = value != null ? formatExternalUsdWhole(value) : '—';
+                const costKey = externalCostBasisOverrideKey(panel, r);
+                const costKeyEnc = encodeURIComponent(costKey || '_');
+                let costStr = '—';
+                let costCell = '';
+                if (costBasis != null && Number.isFinite(costBasis)) {
+                    costStr = formatExternalUsdWhole(costBasis);
+                }
+                if (editCostKey && costKey && editCostKey === costKey) {
+                    const curC = escapeAttr(
+                        (costBasis != null && Number.isFinite(costBasis)) ? String(costBasis) : ''
+                    );
+                    costCell = `<input type="text" class="external-cost-edit" id="ext-cost-edit-${pid}" value="${curC}"
+                        onclick="event.stopPropagation()" onkeydown="externalAccountCostEditKeydown(event,'${escapeAttr(pid)}','${costKeyEnc}')"
+                        onblur="externalAccountCommitCostBasis('${escapeAttr(pid)}','${costKeyEnc}',this.value)" placeholder="Avg $/sh">`;
+                } else if (costKey && (costBasis == null || !Number.isFinite(costBasis))) {
+                    costCell = `<span class="num eh-cost--click" title="Enter average cost per share; Enter saves total basis (× QTY), keyed by ticker + quantity." onclick="event.stopPropagation();externalAccountStartCostEdit('${escapeAttr(pid)}','${costKeyEnc}')">—</span>`;
+                } else {
+                    costCell = `<span class="num">${costStr}</span>`;
+                }
+                const plStr = plD != null ? formatExternalUsdPlSigned(plD) : '—';
+                const plPStr = plPct != null ? ((plPct > 0 ? '+' : '') + Math.round(plPct) + '%') : '—';
+                const staleCls = q && q.stale ? ' stale' : '';
+                const ov = csvKey && panel.externalSymbolOverrides && panel.externalSymbolOverrides[csvKey];
+                let symLabel = ov ? `${escapeHTML(String(ov))}<span class="name"> ←${escapeHTML(r.symbol)}</span>` : escapeHTML(r.symbol);
+                if (isTotals && r.accountName) {
+                    symLabel += `<span class="name"> · ${escapeHTML(truncate(r.accountName, 22))}</span>`;
+                }
+                const csvKeyEnc = encodeURIComponent(csvKey || '_');
+                let symCell;
+                if (csvKey && editCsvKey === csvKey) {
+                    const curVal = escapeAttr(ov || '');
+                    symCell = `<input type="text" class="external-sym-edit" id="ext-sym-edit-${pid}" value="${curVal}"
+                        onclick="event.stopPropagation()" onkeydown="externalAccountSymEditKeydown(event,'${escapeAttr(pid)}','${csvKeyEnc}')"
+                        onblur="externalAccountCommitSymEdit('${escapeAttr(pid)}','${csvKeyEnc}',this.value)" placeholder="Yahoo symbol">`;
+                } else if (csvKey) {
+                    symCell = `<span class="eh-sym eh-sym--click" title="Map this CSV identifier to a Yahoo ticker — saved by this number, survives next CSV import." onclick="event.stopPropagation();externalAccountStartSymEdit('${escapeAttr(pid)}','${csvKeyEnc}')">${symLabel}</span>`;
+                } else {
+                    symCell = `<span class="eh-sym">${symLabel}</span>`;
+                }
+                const rowCls = qk ? 'external-holdings-row' : 'external-holdings-row external-holdings-row--nogo';
+                const rowClick = qk ? `onclick="openDrilldown('${escapeAttr(qk)}')"` : '';
+                return `<div class="${rowCls}${staleCls}" ${rowClick}>
+                    ${symCell}
+                    <span class="num">${escapeHTML(qtyStr)}</span>
+                    <span class="num">${priceStr}</span>
+                    <span class="num">${valStr}</span>
+                    ${costCell}
+                    <span class="num ${plCls}">${plStr}</span>
+                    <span class="num ${plCls}">${plPStr}</span>
+                </div>`;
+            }).join('');
+            const totValStr = viewList.length ? formatExternalUsdWhole(sumValue) : '—';
+            const totCostStr = hadAnyCost ? formatExternalUsdWhole(sumCost) : '—';
+            const totPlStr = hadAnyPl ? formatExternalUsdPlSigned(sumPlD) : '—';
+            const totPortStr = usePortSort ? (sumValue > 0 ? '100%' : '—') : '';
+            const footer = usePortSort
+                ? `<div class="external-holdings-total">
+                <span>TOTAL</span><span class="num"></span><span class="num"></span><span class="num">${totValStr}</span><span class="num">${totPortStr}</span><span class="num">${totCostStr}</span><span class="num">${totPlStr}</span><span class="num">—</span>
+            </div>`
+                : `<div class="external-holdings-total">
+                <span>TOTAL</span><span class="num"></span><span class="num"></span><span class="num">${totValStr}</span><span class="num">${totCostStr}</span><span class="num">${totPlStr}</span><span class="num">—</span>
+            </div>`;
+            return `<div class="${tableWrapCls}">${hdr}${body}${footer}</div>`;
         }
 
         // ============================================================
@@ -4980,6 +5876,38 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 if (panel.display === 'globe') panel.memory.eonet.display = 'globe';
                 else delete panel.memory.eonet.display;
             }
+            // EXTERNAL ACCOUNT — stash Fidelity CSV snapshot when leaving this type (restore on return).
+            if (oldType === 'externalAccount') {
+                panel.memory.externalAccount = {};
+                if (panel.externalImport) {
+                    panel.memory.externalAccount.externalImport = panel.externalImport;
+                    panel.memory.externalAccount.externalSelectedAccount = panel.externalSelectedAccount ?? null;
+                    panel.memory.externalAccount.externalSymbolOverrides = panel.externalSymbolOverrides && typeof panel.externalSymbolOverrides === 'object'
+                        ? { ...panel.externalSymbolOverrides }
+                        : {};
+                    if (Array.isArray(panel.externalHiddenAccounts)) {
+                        panel.memory.externalAccount.externalHiddenAccounts = [...panel.externalHiddenAccounts];
+                    }
+                    if (panel.externalCostBasisOverrides && typeof panel.externalCostBasisOverrides === 'object') {
+                        panel.memory.externalAccount.externalCostBasisOverrides = { ...panel.externalCostBasisOverrides };
+                    }
+                    if (panel.sort && panel.sort.key) {
+                        panel.memory.externalAccount.externalSort = { ...panel.sort };
+                    }
+                    if (panel.display === 'heatmap') {
+                        panel.memory.externalAccount.externalDisplay = 'heatmap';
+                    }
+                }
+                delete panel.externalImport;
+                delete panel.externalSelectedAccount;
+                delete panel.externalSymbolOverrides;
+                delete panel.externalHiddenAccounts;
+                delete panel.externalCostBasisOverrides;
+                delete panel._externalSymEditCsvKey;
+                delete panel._suppressNextExternalSymBlur;
+                delete panel._externalCostEditKey;
+                delete panel._suppressNextExternalCostBlur;
+            }
 
             panel.type = newType;
             if (PANEL_TYPES[newType].usesSymbols) {
@@ -5049,6 +5977,33 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             } else {
                 if (panel.category) panel.memory.calendar = { category: panel.category };
                 delete panel.category;
+            }
+            if (newType === 'externalAccount') {
+                const mem = panel.memory.externalAccount;
+                if (mem?.externalImport?.rows?.length) {
+                    panel.externalImport = mem.externalImport;
+                    panel.externalSymbolOverrides = mem.externalSymbolOverrides && typeof mem.externalSymbolOverrides === 'object'
+                        ? { ...mem.externalSymbolOverrides }
+                        : {};
+                    migrateLegacyExternalSymbolOverrideKeys(panel);
+                    const allAcct = new Set(getExternalAccountNamesFromImport(panel.externalImport));
+                    panel.externalHiddenAccounts = Array.isArray(mem.externalHiddenAccounts)
+                        ? mem.externalHiddenAccounts.filter(n => n && allAcct.has(n))
+                        : [];
+                    panel.externalCostBasisOverrides = mem.externalCostBasisOverrides && typeof mem.externalCostBasisOverrides === 'object'
+                        ? { ...mem.externalCostBasisOverrides }
+                        : {};
+                    const vis = getExternalAccountNamesForPanel(panel);
+                    const sel = mem.externalSelectedAccount;
+                    panel.externalSelectedAccount = vis.includes(sel) ? sel : (vis[0] || null);
+                }
+                if (mem?.externalSort && mem.externalSort.key) {
+                    panel.sort = { key: mem.externalSort.key, dir: mem.externalSort.dir || 'asc' };
+                } else {
+                    panel.sort = { key: null, dir: null };
+                }
+                if (mem?.externalDisplay === 'heatmap') panel.display = 'heatmap';
+                else delete panel.display;
             }
             // Extended-hours: restore remembered toggle for the new type (if any),
             // or strip the flag when the new type doesn't support it.
@@ -5141,6 +6096,34 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         function cyclePanelSort(pid, key) {
             const panel = state.panels[pid];
             if (!panel) return;
+            if (panel.type === 'externalAccount') {
+                delete panel.display;
+                const cur = panel.sort || { key: null, dir: null };
+                let next;
+                if (key === 'none') {
+                    next = { key: null, dir: null };
+                } else if (key === 'symbol') {
+                    if (cur.key !== 'symbol') next = { key: 'symbol', dir: 'asc' };
+                    else next = { key: 'symbol', dir: cur.dir === 'asc' ? 'desc' : 'asc' };
+                } else if (key === 'portfolioPct') {
+                    if (cur.key !== 'portfolioPct') next = { key: 'portfolioPct', dir: 'desc' };
+                    else next = { key: 'portfolioPct', dir: cur.dir === 'desc' ? 'asc' : 'desc' };
+                } else {
+                    return;
+                }
+                panel.sort = next;
+                if (panel.memory && panel.memory.externalAccount) {
+                    if (next.key) panel.memory.externalAccount.externalSort = { ...next };
+                    else delete panel.memory.externalAccount.externalSort;
+                    delete panel.memory.externalAccount.externalDisplay;
+                }
+                saveState();
+                renderAllPanels();
+                state.ui.openTray = pid;
+                document.getElementById(`panel-${pid}`)?.classList.add('tray-open');
+                void refreshAll();
+                return;
+            }
             delete panel.display;
             const cur = panel.sort || { key: null, dir: null };
             let next;
@@ -5159,14 +6142,26 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         // DISPLAY row: sector treemap uses the same symbol list as the table (toggle).
         function togglePanelHeatmapDisplay(pid) {
             const panel = state.panels[pid];
-            if (!panel || !PANEL_TYPES[panel.type]?.usesSymbols) return;
+            if (!panel) return;
+            if (!PANEL_TYPES[panel.type]?.usesSymbols && panel.type !== 'externalAccount') return;
             if (panel.display === 'heatmap') {
                 delete panel.display;
             } else {
                 panel.display = 'heatmap';
             }
+            if (panel.type === 'externalAccount' && panel.memory && panel.memory.externalAccount) {
+                if (panel.display === 'heatmap') panel.memory.externalAccount.externalDisplay = 'heatmap';
+                else delete panel.memory.externalAccount.externalDisplay;
+                if (panel.sort && panel.sort.key) panel.memory.externalAccount.externalSort = { ...panel.sort };
+                else delete panel.memory.externalAccount.externalSort;
+            }
             saveState();
             renderAllPanels();
+            if (panel.type === 'externalAccount') {
+                state.ui.openTray = pid;
+                document.getElementById(`panel-${pid}`)?.classList.add('tray-open');
+                void refreshAll();
+            }
         }
 
         // DISPLAY → GLOBE for any panel type with supportsGeoDisplay (lat/lon feeds).
@@ -5325,6 +6320,385 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     }
                 });
             }
+        }
+
+        /** EXTERNAL ACCOUNT — open file picker (Downloads when supported) or fallback file input. */
+        async function promptExternalAccountCsv(pid) {
+            const p = state.panels[pid];
+            if (!p || p.type !== 'externalAccount') return;
+            try {
+                if (window.showOpenFilePicker) {
+                    const [handle] = await window.showOpenFilePicker({
+                        types: [{
+                            description: 'CSV',
+                            accept: { 'text/csv': ['.csv'], 'application/vnd.ms-excel': ['.csv'] },
+                        }],
+                        excludeAcceptAllOption: false,
+                        multiple: false,
+                        startIn: 'downloads',
+                    });
+                    const file = await handle.getFile();
+                    await applyExternalAccountCsvFile(pid, file);
+                    return;
+                }
+            } catch (e) {
+                if (e && e.name === 'AbortError') return;
+                console.warn('showOpenFilePicker:', e);
+            }
+            document.getElementById(`external-csv-${pid}`)?.click();
+        }
+
+        function onExternalAccountCsvInput(pid, inputEl) {
+            const f = inputEl.files && inputEl.files[0];
+            inputEl.value = '';
+            if (f) void applyExternalAccountCsvFile(pid, f);
+        }
+
+        /** Replace any prior CSV for this panel — one active Fidelity export at a time. */
+        async function applyExternalAccountCsvFile(pid, file) {
+            const p = state.panels[pid];
+            if (!p || p.type !== 'externalAccount') return;
+            let text;
+            try {
+                text = await file.text();
+            } catch (e) {
+                alert('Could not read file: ' + (e && e.message ? e.message : String(e)));
+                return;
+            }
+            const parsed = parseFidelityPositionsCsv(text);
+            if (!parsed.rows.length) {
+                alert('Could not parse CSV — use Fidelity Positions → Download (Portfolio Positions).');
+                return;
+            }
+            // Keep symbol-keyed Yahoo overrides when re-importing — only drop keys absent from the new file.
+            const prevOv = (p.externalSymbolOverrides && typeof p.externalSymbolOverrides === 'object')
+                ? { ...p.externalSymbolOverrides }
+                : {};
+            const prevCost = (p.externalCostBasisOverrides && typeof p.externalCostBasisOverrides === 'object')
+                ? { ...p.externalCostBasisOverrides }
+                : {};
+            const prevHidden = Array.isArray(p.externalHiddenAccounts) ? [...p.externalHiddenAccounts] : [];
+            p.externalImport = { fileName: file.name, importedAt: Date.now(), rows: parsed.rows };
+            const names = parsed.accountNames.length
+                ? parsed.accountNames
+                : getExternalAccountNamesFromImport(p.externalImport);
+            const allAcctSet = new Set(names);
+            p.externalHiddenAccounts = prevHidden.filter(n => n && allAcctSet.has(n));
+            const seenSyms = new Set(parsed.rows.map(r => externalOverrideKeyFromRow(r)).filter(Boolean));
+            const nextOv = {};
+            for (const [k, v] of Object.entries(prevOv)) {
+                if (!v || !String(v).trim()) continue;
+                if (seenSyms.has(k)) nextOv[k] = String(v).trim();
+            }
+            p.externalSymbolOverrides = nextOv;
+            migrateLegacyExternalSymbolOverrideKeys(p);
+            const keySet = collectExternalCostBasisKeysAcrossImport(p);
+            const nextCost = {};
+            for (const [k, v] of Object.entries(prevCost)) {
+                if (keySet.has(k) && Number.isFinite(v)) nextCost[k] = v;
+            }
+            p.externalCostBasisOverrides = nextCost;
+            const vis = getExternalAccountNamesForPanel(p);
+            const prevSel = p.externalSelectedAccount;
+            p.externalSelectedAccount = vis.includes(prevSel) ? prevSel : (vis[0] || null);
+            delete p._externalSymEditCsvKey;
+            delete p._suppressNextExternalSymBlur;
+            delete p._externalCostEditKey;
+            delete p._suppressNextExternalCostBlur;
+            p.memory = p.memory || {};
+            const extMem = {
+                externalImport: p.externalImport,
+                externalSelectedAccount: p.externalSelectedAccount,
+                externalSymbolOverrides: { ...p.externalSymbolOverrides },
+                externalHiddenAccounts: [...(p.externalHiddenAccounts || [])],
+                externalCostBasisOverrides: { ...p.externalCostBasisOverrides },
+            };
+            if (p.sort && p.sort.key) extMem.externalSort = { ...p.sort };
+            if (p.display === 'heatmap') extMem.externalDisplay = 'heatmap';
+            p.memory.externalAccount = extMem;
+            saveState();
+            state.ui.openTray = pid;
+            renderAllPanels();
+            document.getElementById(`panel-${pid}`)?.classList.add('tray-open');
+            await refreshAll();
+        }
+
+        /** Clear loaded CSV for this panel (same [×] idea as watchlist / NEWS saved tags). */
+        function clearExternalAccountImport(pid) {
+            const p = state.panels[pid];
+            if (!p || p.type !== 'externalAccount') return;
+            delete p.externalImport;
+            delete p.externalSelectedAccount;
+            delete p.externalSymbolOverrides;
+            delete p.externalHiddenAccounts;
+            delete p.externalCostBasisOverrides;
+            delete p._externalSymEditCsvKey;
+            delete p._suppressNextExternalSymBlur;
+            delete p._externalCostEditKey;
+            delete p._suppressNextExternalCostBlur;
+            delete p.sort;
+            delete p.display;
+            if (p.memory) delete p.memory.externalAccount;
+            saveState();
+            state.ui.openTray = pid;
+            renderAllPanels();
+            document.getElementById(`panel-${pid}`)?.classList.add('tray-open');
+            void refreshAll();
+        }
+
+        function setExternalAccountSelection(pid, index) {
+            const p = state.panels[pid];
+            if (!p || p.type !== 'externalAccount' || !p.externalImport?.rows) return;
+            const names = getExternalAccountNamesForPanel(p);
+            const i = Number(index);
+            if (!Number.isFinite(i) || i < 0 || i >= names.length) return;
+            const next = names[i];
+            if (p.externalSelectedAccount === next) return;
+            p.externalSelectedAccount = next;
+            if (p.memory?.externalAccount) {
+                p.memory.externalAccount.externalSelectedAccount = next;
+            }
+            saveState();
+            state.ui.openTray = pid;
+            renderAllPanels();
+            document.getElementById(`panel-${pid}`)?.classList.add('tray-open');
+            void refreshAll();
+        }
+
+        /** Hide a real account chip by tray index (EXTERNAL ACCOUNT) — avoids encoding bugs from inline onclick. */
+        function externalAccountHideAccountByIndex(pid, index) {
+            const p = state.panels[pid];
+            if (!p || p.type !== 'externalAccount' || !p.externalImport?.rows) return;
+            const names = getExternalAccountNamesForPanel(p);
+            const i = Number(index);
+            if (!Number.isFinite(i) || i < 0 || i >= names.length) return;
+            const name = names[i];
+            if (!name || name === EXTERNAL_ACCOUNT_TOTALS_ID) return;
+            const all = getExternalAccountNamesFromImport(p.externalImport);
+            if (!all.includes(name)) return;
+            p.externalHiddenAccounts = Array.isArray(p.externalHiddenAccounts) ? p.externalHiddenAccounts : [];
+            if (p.externalHiddenAccounts.includes(name)) return;
+            p.externalHiddenAccounts.push(name);
+            const vis = getExternalAccountNamesForPanel(p);
+            if (p.externalSelectedAccount === name || !vis.includes(p.externalSelectedAccount)) {
+                p.externalSelectedAccount = vis[0] || null;
+            }
+            p.memory = p.memory || {};
+            p.memory.externalAccount = p.memory.externalAccount || {
+                externalImport: p.externalImport,
+                externalSelectedAccount: p.externalSelectedAccount,
+                externalSymbolOverrides: { ...(p.externalSymbolOverrides || {}) },
+                externalHiddenAccounts: [...p.externalHiddenAccounts],
+                externalCostBasisOverrides: { ...(p.externalCostBasisOverrides || {}) },
+            };
+            p.memory.externalAccount.externalHiddenAccounts = [...p.externalHiddenAccounts];
+            p.memory.externalAccount.externalSelectedAccount = p.externalSelectedAccount;
+            saveState();
+            state.ui.openTray = pid;
+            renderAllPanels();
+            document.getElementById(`panel-${pid}`)?.classList.add('tray-open');
+            void refreshAll();
+        }
+
+        function externalAccountStartCostEdit(pid, costKeyEnc) {
+            const panel = state.panels[pid];
+            if (!panel || panel.type !== 'externalAccount') return;
+            let costKey = '';
+            try {
+                costKey = decodeURIComponent(String(costKeyEnc || ''));
+            } catch {
+                costKey = String(costKeyEnc || '');
+            }
+            costKey = costKey.trim();
+            if (!costKey || costKey === '_') return;
+            panel._externalCostEditKey = costKey;
+            rerenderPanelBody(pid);
+            requestAnimationFrame(() => {
+                const el = document.getElementById(`ext-cost-edit-${pid}`);
+                if (el) {
+                    el.focus();
+                    el.select();
+                }
+            });
+        }
+
+        function externalAccountCostEditKeydown(ev, pid, costKeyEnc) {
+            if (ev.key === 'Enter') {
+                ev.preventDefault();
+                externalAccountCommitCostBasis(pid, costKeyEnc, ev.target.value);
+            } else if (ev.key === 'Escape') {
+                ev.preventDefault();
+                const p = state.panels[pid];
+                if (p) p._suppressNextExternalCostBlur = true;
+                externalAccountCancelCostEdit(pid);
+            }
+        }
+
+        function externalAccountCancelCostEdit(pid) {
+            const p = state.panels[pid];
+            if (!p || p.type !== 'externalAccount') return;
+            delete p._externalCostEditKey;
+            rerenderPanelBody(pid);
+        }
+
+        /** Manual cost: user enters average $/share; we store total basis (Fidelity-style dollars) under ticker|qty — survives re-import when that key still exists. */
+        function externalAccountCommitCostBasis(pid, costKeyEnc, val) {
+            const p = state.panels[pid];
+            if (!p || p.type !== 'externalAccount') return;
+            if (p._suppressNextExternalCostBlur) {
+                delete p._suppressNextExternalCostBlur;
+                delete p._externalCostEditKey;
+                rerenderPanelBody(pid);
+                return;
+            }
+            let costKey = '';
+            try {
+                costKey = decodeURIComponent(String(costKeyEnc || ''));
+            } catch {
+                costKey = String(costKeyEnc || '');
+            }
+            costKey = costKey.trim();
+            delete p._externalCostEditKey;
+            if (!costKey || costKey === '_') {
+                rerenderPanelBody(pid);
+                return;
+            }
+            const parsedAvg = parseFidelityMoneyCell(val);
+            p.externalCostBasisOverrides = p.externalCostBasisOverrides && typeof p.externalCostBasisOverrides === 'object'
+                ? { ...p.externalCostBasisOverrides }
+                : {};
+            if (parsedAvg == null || !Number.isFinite(parsedAvg)) {
+                delete p.externalCostBasisOverrides[costKey];
+            } else {
+                const qty = externalQuantityForCostBasisKey(p, costKey);
+                if (qty == null || !Number.isFinite(qty)) {
+                    alert('Cannot set cost — this row has no usable quantity to convert avg $/share to total.');
+                    rerenderPanelBody(pid);
+                    return;
+                }
+                const total = parsedAvg * qty;
+                p.externalCostBasisOverrides[costKey] = Number(total.toFixed(2));
+            }
+            p.memory = p.memory || {};
+            p.memory.externalAccount = p.memory.externalAccount || {
+                externalImport: p.externalImport,
+                externalSelectedAccount: p.externalSelectedAccount,
+                externalSymbolOverrides: { ...(p.externalSymbolOverrides || {}) },
+                externalHiddenAccounts: [...(p.externalHiddenAccounts || [])],
+                externalCostBasisOverrides: {},
+            };
+            p.memory.externalAccount.externalCostBasisOverrides = { ...(p.externalCostBasisOverrides || {}) };
+            saveState();
+            rerenderPanelBody(pid);
+            void refreshAll();
+        }
+
+        function externalAccountStartSymEdit(pid, csvKeyEnc) {
+            const p = state.panels[pid];
+            if (!p || p.type !== 'externalAccount') return;
+            let csvKey = '';
+            try {
+                csvKey = decodeURIComponent(String(csvKeyEnc || ''));
+            } catch {
+                csvKey = String(csvKeyEnc || '');
+            }
+            csvKey = csvKey.trim();
+            if (!csvKey) return;
+            p._externalSymEditCsvKey = csvKey;
+            rerenderPanelBody(pid);
+            requestAnimationFrame(() => {
+                const el = document.getElementById(`ext-sym-edit-${pid}`);
+                if (el) {
+                    el.focus();
+                    el.select();
+                }
+            });
+        }
+
+        function externalAccountSymEditKeydown(ev, pid, csvKeyEnc) {
+            if (ev.key === 'Enter') {
+                ev.preventDefault();
+                externalAccountCommitSymEdit(pid, csvKeyEnc, ev.target.value);
+            } else if (ev.key === 'Escape') {
+                ev.preventDefault();
+                const p = state.panels[pid];
+                if (p) p._suppressNextExternalSymBlur = true;
+                externalAccountCancelSymEdit(pid);
+            }
+        }
+
+        function externalAccountCancelSymEdit(pid) {
+            const p = state.panels[pid];
+            if (!p || p.type !== 'externalAccount') return;
+            delete p._externalSymEditCsvKey;
+            rerenderPanelBody(pid);
+        }
+
+        /** Save Yahoo symbol override keyed by Fidelity CSV Symbol (CUSIP etc.) — survives re-import. Live quotes only. */
+        function externalAccountCommitSymEdit(pid, csvKeyEnc, val) {
+            const p = state.panels[pid];
+            if (!p || p.type !== 'externalAccount') return;
+            if (p._suppressNextExternalSymBlur) {
+                delete p._suppressNextExternalSymBlur;
+                delete p._externalSymEditCsvKey;
+                rerenderPanelBody(pid);
+                return;
+            }
+            let csvKey = '';
+            try {
+                csvKey = decodeURIComponent(String(csvKeyEnc || ''));
+            } catch {
+                csvKey = String(csvKeyEnc || '');
+            }
+            csvKey = csvKey.trim();
+            delete p._externalSymEditCsvKey;
+            if (!csvKey) {
+                rerenderPanelBody(pid);
+                return;
+            }
+            const rows = p.externalImport?.rows || [];
+            const matched = rows.filter(r => externalOverrideKeyFromRow(r) === csvKey);
+            const oldCostKeys = matched.map(r => externalCostBasisOverrideKey(p, r));
+            const prevOv = (p.externalSymbolOverrides && p.externalSymbolOverrides[csvKey]) || '';
+            const t = String(val || '').trim();
+            const nextNorm = t ? normalizeExternalUserSymbol(t) : '';
+            if (!nextNorm) {
+                if (p.externalSymbolOverrides) delete p.externalSymbolOverrides[csvKey];
+            } else {
+                p.externalSymbolOverrides = p.externalSymbolOverrides || {};
+                p.externalSymbolOverrides[csvKey] = nextNorm;
+            }
+            const newOv = (p.externalSymbolOverrides && p.externalSymbolOverrides[csvKey]) || '';
+            if (prevOv === newOv) {
+                saveState();
+                rerenderPanelBody(pid);
+                return;
+            }
+            // When SYM mapping changes resolved ticker, move manual cost from old ticker|qty key to new (if new slot empty).
+            if (p.externalCostBasisOverrides && typeof p.externalCostBasisOverrides === 'object') {
+                p.externalCostBasisOverrides = { ...p.externalCostBasisOverrides };
+                for (let i = 0; i < matched.length; i++) {
+                    const r = matched[i];
+                    const oldK = oldCostKeys[i];
+                    const newK = externalCostBasisOverrideKey(p, r);
+                    if (!oldK || !newK || oldK === newK) continue;
+                    const moved = p.externalCostBasisOverrides[oldK];
+                    if (moved == null || !Number.isFinite(moved)) continue;
+                    const exNew = p.externalCostBasisOverrides[newK];
+                    if (exNew != null && Number.isFinite(exNew)) continue;
+                    p.externalCostBasisOverrides[newK] = moved;
+                    delete p.externalCostBasisOverrides[oldK];
+                }
+            }
+            if (p.memory?.externalAccount) {
+                p.memory.externalAccount.externalSymbolOverrides = { ...(p.externalSymbolOverrides || {}) };
+                if (p.externalCostBasisOverrides && typeof p.externalCostBasisOverrides === 'object') {
+                    p.memory.externalAccount.externalCostBasisOverrides = { ...p.externalCostBasisOverrides };
+                }
+            }
+            saveState();
+            rerenderPanelBody(pid);
+            void refreshAll();
         }
 
         // ============================================================
