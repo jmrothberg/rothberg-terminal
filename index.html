@@ -1165,7 +1165,7 @@ Click an [×] next to any symbol pill to remove it.
 
 Symbol formats:
   Stocks      NVDA, AAPL, TSLA
-  Indices     ^GSPC (S&P 500), ^IXIC (NASDAQ), ^VIX
+  Indices     ^GSPC (S&P 500), ^IXIC (NASDAQ), ^VIX, ES=F / NQ=F / YM=F (E-mini futures)
   Crypto      BTC-USD, ETH-USD, SOL-USD
   Forex       EURUSD=X, USDJPY=X, GBPUSD=X
   Commodities CL=F (oil), GC=F (gold), SI=F (silver)
@@ -1525,7 +1525,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
         const PANEL_TYPES = {
             stocks:      { label: 'WATCHLIST',           usesSymbols: true,  usesNews: false, priceFormat: 'usd',   empty: 'NVDA, AAPL, TSLA…', supportsExtendedHours: true },
-            indices:     { label: 'INDICES',             usesSymbols: true,  usesNews: false, priceFormat: 'index', empty: '^GSPC, ^IXIC, ^DJI…', supportsExtendedHours: true },
+            indices:     { label: 'INDICES',             usesSymbols: true,  usesNews: false, priceFormat: 'index', empty: '^GSPC, ES=F, ^IXIC…', supportsExtendedHours: true },
             crypto:      { label: 'CRYPTO',              usesSymbols: true,  usesNews: false, priceFormat: 'usd',   empty: 'BTC-USD, ETH-USD…' },
             forex:       { label: 'FOREX',               usesSymbols: true,  usesNews: false, priceFormat: 'forex', empty: 'EURUSD=X, USDJPY=X…' },
             commodities: { label: 'COMMODITIES',         usesSymbols: true,  usesNews: false, priceFormat: 'usd',   empty: 'CL=F, GC=F, SI=F…' },
@@ -1553,7 +1553,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
         const DEFAULT_SYMBOLS = {
             stocks:      ['NVDA','MSFT','GOOG','META','AVGO','CRM','BFLY','HYPR','QSI','INTC','MU','GFS','AMD','EWY','AMZN','ASML','TSM'],
-            indices:     ['^GSPC','^IXIC','^DJI','^SOX','^VIX','^RUT'],
+            indices:     ['^GSPC','^IXIC','^DJI','ES=F','NQ=F','YM=F','^SOX','^VIX','^RUT'],
             crypto:      ['BTC-USD','ETH-USD','SOL-USD','DOGE-USD'],
             forex:       ['EURUSD=X','USDJPY=X','GBPUSD=X','AUDUSD=X'],
             commodities: ['CL=F','GC=F','SI=F','NG=F','HG=F'],

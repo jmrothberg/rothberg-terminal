@@ -73,7 +73,7 @@ Heat map is **not** listed here — it is a **DISPLAY** option on the types belo
 | Type | What it shows | Default symbols |
 |---|---|---|
 | **STOCKS** | Individual equity watchlist | `NVDA MSFT GOOG META AVGO CRM BFLY HYPR QSI INTC MU GFS AMD EWY AMZN ASML TSM` |
-| **INDICES** | Market indices | `^GSPC ^IXIC ^DJI ^SOX ^VIX ^RUT` |
+| **INDICES** | Market indices | `^GSPC ^IXIC ^DJI ES=F NQ=F YM=F ^SOX ^VIX ^RUT` (E-minis = overnight futures) |
 | **CRYPTO** | Cryptocurrencies | `BTC-USD ETH-USD SOL-USD DOGE-USD` |
 | **FOREX** | Currency pairs | `EURUSD=X USDJPY=X GBPUSD=X AUDUSD=X` |
 | **COMMODITIES** | Futures contracts | `CL=F GC=F SI=F NG=F HG=F` |
@@ -241,7 +241,7 @@ The terminal accepts Yahoo Finance ticker syntax across every panel type:
 | Asset class | Format | Examples |
 |---|---|---|
 | US equities | Plain ticker | `NVDA`, `AAPL`, `TSLA`, `BRK-B` |
-| Indices | `^` prefix | `^GSPC` (S&P 500), `^IXIC` (NASDAQ), `^DJI` (Dow), `^VIX`, `^RUT` (Russell 2k), `^SOX` (Philadelphia Semi) |
+| Indices | `^` cash or `=F` futures | `^GSPC`, `^IXIC`, `^DJI`; E-mini **index futures** `ES=F`, `NQ=F`, `YM=F`; `^VIX`, `^RUT`, `^SOX` |
 | Crypto | `-USD` suffix | `BTC-USD`, `ETH-USD`, `SOL-USD`, `DOGE-USD`, `ADA-USD` |
 | Forex | `=X` suffix | `EURUSD=X`, `USDJPY=X`, `GBPUSD=X`, `AUDUSD=X` |
 | Commodity futures | `=F` suffix | `CL=F` (Oil), `GC=F` (Gold), `SI=F` (Silver), `NG=F` (Nat Gas), `HG=F` (Copper) |
