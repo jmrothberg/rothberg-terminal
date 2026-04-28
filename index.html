@@ -34,7 +34,8 @@
             --border-color: #1a3a1a;
             --border-bright: #00ff00;
             --highlight: #00ff0033;
-            --stale: #557755;
+            /* Cached quote / holdings numbers while a refresh is in flight (still used for totals). */
+            --stale: #5fa060;
         }
 
         ::selection { background: var(--text-primary); color: var(--bg-primary); }
@@ -383,6 +384,12 @@
             justify-content: center;
             height: 20px;
         }
+        /* Watchlist: spark slot shows loading… while 1d series is missing (e.g. after quote rehydrate from storage). */
+        .quote-spark--loading {
+            color: var(--text-dim);
+            font-size: 9px;
+            white-space: nowrap;
+        }
         .spark { display: block; }
 
         .quote-price {
@@ -402,9 +409,13 @@
 
         .quote-row.stale .quote-price,
         .quote-row.stale .quote-change { color: var(--stale); }
+        .quote-row.stale .quote-change.positive,
+        .quote-row.stale .quote-change.negative,
+        .quote-row.stale .quote-change.neutral { color: var(--stale); }
 
         .quote-row.nodata .quote-price,
-        .quote-row.nodata .quote-change { color: var(--text-dim); }
+        .quote-row.nodata .quote-change,
+        .quote-row.nodata .quote-spark { color: var(--text-dim); }
 
         /* EXTERNAL ACCOUNT — Fidelity Portfolio_Positions*.csv table */
         .external-holdings-hdr,
@@ -444,6 +455,37 @@
             cursor: default;
         }
         .external-holdings-total .num { text-align: right; }
+        /* TOTALS!: section labels + per-bucket subtotals (securities vs sweep/MM cash) */
+        .external-holdings-section {
+            padding: 8px 4px 2px;
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            letter-spacing: 0.04em;
+        }
+        .external-holdings-subtotal {
+            display: grid;
+            grid-template-columns: minmax(56px, 1fr) 64px 72px 80px 80px 72px 72px;
+            gap: 4px 6px;
+            align-items: baseline;
+            padding: 4px 4px;
+            margin-top: 2px;
+            font-variant-numeric: tabular-nums;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            border-top: 1px dashed var(--border-color);
+            cursor: default;
+        }
+        .external-holdings-table--portpct .external-holdings-subtotal {
+            grid-template-columns: minmax(56px, 1fr) 64px 72px 80px 44px 80px 72px 72px;
+        }
+        .external-holdings-subtotal .num { text-align: right; }
+        /* While [REFRESH] is in flight, totals/subtotals use last numbers (same as rows) in muted green. */
+        .external-holdings-table--refresh-pass .external-holdings-total .num,
+        .external-holdings-table--refresh-pass .external-holdings-subtotal .num {
+            color: var(--stale);
+        }
         .external-holdings-row--nogo {
             cursor: default;
         }
@@ -464,7 +506,13 @@
             color: var(--text-primary);
         }
         .external-holdings-row .num { text-align: right; }
-        .external-holdings-row.stale .num { color: var(--stale); }
+        .external-holdings-row .num.positive { color: var(--color-positive); }
+        .external-holdings-row .num.negative { color: var(--color-negative); }
+        .external-holdings-row .num.neutral { color: var(--color-neutral); }
+        .external-holdings-row.stale .num,
+        .external-holdings-row.stale .num.positive,
+        .external-holdings-row.stale .num.negative,
+        .external-holdings-row.stale .num.neutral { color: var(--stale); }
         .external-src-tag {
             margin-left: 4px;
             font-size: 8px;
@@ -629,6 +677,11 @@
         .dd-session-tag.ext {
             color: #ffb300;
             background: rgba(255, 179, 0, 0.08);
+        }
+        .dd-session-tag.reg {
+            color: var(--text-secondary);
+            border-color: var(--border-color);
+            font-weight: 600;
         }
         .dd-pred-tile {
             display: inline-block;
@@ -1050,7 +1103,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.3</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.4</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1234,6 +1287,49 @@ extended data entirely.</pre>
                 </div>
 
                 <div class="help-section">
+                    <div class="help-section-title">EXTERNAL ACCOUNT — FIDELITY CSV FORMAT</div>
+                    <pre>The EXTERNAL ACCOUNT panel only ingests positions files in
+<strong>Fidelity's export shape</strong> — the CSV Fidelity generates when you
+export open positions (not a generic spreadsheet you invent).
+
+<strong>How to get the file (Fidelity):</strong>
+  Website or app → <strong>Accounts → Positions</strong> (or Portfolio) →
+  <strong>Download</strong> / export — choose the positions CSV, usually named
+  like <code>Portfolio_Positions_&lt;date&gt;.csv</code>. That file is what
+  <strong>ADD CSV</strong> expects.
+
+<strong>What "Fidelity format" means here:</strong>
+  - First row = column headers (names matched case-insensitive).
+  - <strong>Required</strong> headers for any rows to load: <strong>Account Name</strong>,
+    <strong>Symbol</strong> (ticker, CUSIP, cash ISO like EUR, or sweep codes like SPAXX**).
+  - <strong>Optional</strong> headers the parser uses if present: Account Number,
+    Description, Quantity, Last Price, Current Value, Cost Basis Total,
+    Average Cost Basis, Today's Gain/Loss Dollar, Total Gain/Loss Dollar,
+    Type.
+  - Numbers and money may use commas, $, and parentheses for negatives
+    (Fidelity style). Quoted fields are supported (e.g. account names with commas).
+
+<strong>Other brokers / your own CSV:</strong>
+  The importer is not a universal CSV mapper. To load data here, a file
+  must present those same <strong>header names</strong> and row semantics (one row
+  per position line). Otherwise export from Fidelity, or reshape another
+  export in a spreadsheet to match these columns, then save as CSV.
+
+Tray (after load): <strong>DISPLAY</strong> = table sort / heat map; <strong>P/L COLS</strong> =
+<strong>TOTAL P/L</strong> (vs cost) vs <strong>DAILY P/L</strong> (last columns vs prior close).
+
+<strong>ACCOUNT chips — combine a subset (like mini-TOTALS!):</strong>
+  - Normal click: one account (or TOTALS! for everything), same as before.
+  - <strong>Shift+click</strong> or <strong>⌘+click</strong> (Mac) another account: add/remove it from a
+    <em>combined</em> view — same SECURITIES / CASH sections and rollups as TOTALS!, but only
+    the accounts you highlighted. Click <strong>TOTALS!</strong> to clear multi-select.
+  - <strong>iPhone / iPad (no Shift key):</strong> press and <strong>hold</strong> an account chip for about
+    half a second, then release — that gesture is treated like Shift+click (add/remove from the
+    combined set). It is not “hold one finger while tapping another”; one long-press per account
+    you want to add or remove.</pre>
+                </div>
+
+                <div class="help-section">
                     <div class="help-section-title">DISPLAY AND HEAT MAP</div>
                     <pre>Heat map is not a separate panel TYPE — it is a DISPLAY mode
 on any price panel, using the same symbol list as the quote table.
@@ -1298,7 +1394,11 @@ WHAT'S IN THE LIST
 
   EARTH EVENTS (NASA) — NASA EONET open events (last 14 days).
     No API key. FILTER chips pick hazard type on one list and
-    one globe (not separate panel types):
+    one globe (not separate panel types). Normal click = one
+    filter; <strong>Shift+click</strong> or <strong>⌘+click</strong> toggles extra categories so
+    the list/globe show events matching <em>any</em> selected chip
+    (ALL alone still means everything). On iPhone/iPad, <strong>long-press
+    ~0.5s</strong> on a chip = same as Shift+click.
       ALL — every open EONET event (noisier).
       FIRE — wildfire · utilities, REITs, timber, insurers.
       VOLC — volcano / ash · airlines, cargo, tourism.
@@ -1345,7 +1445,12 @@ Earth events: NASA EONET api/v3/events/geojson (direct CORS;
 H         Toggle this help
 ESC       Close help / close open tray
 Enter     (in symbol input) add typed symbol
-Up/Down   (in symbol input) navigate autocomplete</pre>
+Up/Down   (in symbol input) navigate autocomplete
+
+Shift+click / ⌘+click — also used in the tray for <strong>EXTERNAL ACCOUNT</strong>
+(multi-account combined roll-up) and <strong>EARTH EVENTS</strong> FILTER (multi-category
+OR). See those sections above. On touch devices without Shift, use a <strong>long-press
+(~0.5s)</strong> on the chip instead.</pre>
                 </div>
 
                 <div class="help-section">
@@ -1565,6 +1670,87 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
         let state = structuredClone(DEFAULT_STATE);
         const quoteCache = {};   // { symbol: { price, change, changePercent, previousClose, ts, stale } }
+        /** Persist last-good quotes across reloads / new builds (in-memory quoteCache alone was empty on every load). */
+        const QUOTE_CACHE_STORAGE_KEY = 'bloomberg_quote_cache_v1';
+        const QUOTE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+        const QUOTE_CACHE_MAX_ENTRIES = 400;
+        const QUOTE_CACHE_PERSIST_DEBOUNCE_MS = 500;
+        let quoteCachePersistTimer = null;
+
+        function serializeQuoteForStorage(q) {
+            if (!q || typeof q !== 'object') return null;
+            const price = q.regularPrice ?? q.price;
+            const prev = q.previousClose;
+            if (!Number.isFinite(Number(price)) || !Number.isFinite(Number(prev))) return null;
+            const o = { ...q };
+            delete o.closes;
+            delete o.timestamps;
+            o.ts = Number.isFinite(Number(q.ts)) ? Number(q.ts) : Date.now();
+            return o;
+        }
+
+        function rehydrateQuoteFromStorage(raw) {
+            if (!raw || typeof raw !== 'object') return null;
+            const ts = Number.isFinite(Number(raw.ts)) ? Number(raw.ts) : 0;
+            if (Date.now() - ts > QUOTE_CACHE_MAX_AGE_MS) return null;
+            const price = raw.regularPrice ?? raw.price;
+            const prev = raw.previousClose;
+            if (!Number.isFinite(Number(price)) || !Number.isFinite(Number(prev))) return null;
+            const q = { ...raw, closes: [], timestamps: [], stale: true };
+            if (q.regularPrice == null && q.price != null) q.regularPrice = q.price;
+            if (q.regularChange == null && q.change != null) q.regularChange = q.change;
+            if (q.regularChangePercent == null && q.changePercent != null) q.regularChangePercent = q.changePercent;
+            q.ts = ts || Date.now();
+            return q;
+        }
+
+        function loadQuoteCacheFromStorage() {
+            try {
+                const raw = localStorage.getItem(QUOTE_CACHE_STORAGE_KEY);
+                if (!raw) return;
+                const parsed = JSON.parse(raw);
+                const entries =
+                    parsed && typeof parsed === 'object' && parsed.entries && typeof parsed.entries === 'object'
+                        ? parsed.entries
+                        : null;
+                if (!entries) return;
+                for (const [sym, row] of Object.entries(entries)) {
+                    if (!sym || typeof row !== 'object') continue;
+                    const q = rehydrateQuoteFromStorage(row);
+                    if (!q) continue;
+                    quoteCache[sym] = q;
+                    if (q.shortName && q.shortName !== sym) symbolNameCache[sym] = q.shortName;
+                }
+            } catch (e) {
+                console.warn('loadQuoteCacheFromStorage failed:', e);
+            }
+        }
+
+        function flushQuoteCacheToStorage() {
+            try {
+                const pairs = Object.entries(quoteCache)
+                    .map(([k, v]) => {
+                        const slim = serializeQuoteForStorage(v);
+                        return slim ? [k, slim] : null;
+                    })
+                    .filter(Boolean);
+                pairs.sort((a, b) => (b[1].ts || 0) - (a[1].ts || 0));
+                const capped = pairs.slice(0, QUOTE_CACHE_MAX_ENTRIES);
+                const payload = { v: 1, savedAt: Date.now(), entries: Object.fromEntries(capped) };
+                localStorage.setItem(QUOTE_CACHE_STORAGE_KEY, JSON.stringify(payload));
+            } catch (e) {
+                console.warn('flushQuoteCacheToStorage failed:', e);
+            }
+        }
+
+        function scheduleQuoteCachePersist() {
+            if (quoteCachePersistTimer) clearTimeout(quoteCachePersistTimer);
+            quoteCachePersistTimer = setTimeout(() => {
+                quoteCachePersistTimer = null;
+                flushQuoteCacheToStorage();
+            }, QUOTE_CACHE_PERSIST_DEBOUNCE_MS);
+        }
+
         const newsCache  = {};   // { cacheKey: { articles, ts } }
         const symbolNameCache = {};  // { symbol: shortName }  from autocomplete
         const fundamentalsCache = {};  // { symbol: { data, ts } }  15-min TTL
@@ -1706,7 +1892,21 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 }
             }
             for (const p of Object.values(state.panels)) {
+                if (!p || p.type !== 'externalAccount') continue;
+                const hadLegacyCsv = !!(p.externalImport && p.externalImport.rows?.length);
+                ensureExternalBundles(p);
+                if (hadLegacyCsv) {
+                    dirty = true;
+                    if (p.memory?.externalAccount) {
+                        p.memory.externalAccount = buildExternalAccountMemorySnapshot(p);
+                    }
+                }
+            }
+            for (const p of Object.values(state.panels)) {
                 if (p && migrateLegacyExternalSymbolOverrideKeys(p)) dirty = true;
+            }
+            for (const p of Object.values(state.panels)) {
+                if (p && p.type === 'externalAccount' && migrateLegacyExternalCostBasisForRestricted(p)) dirty = true;
             }
             if (dirty) saveState();
         }
@@ -1851,19 +2051,12 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 // quotes are relative to today's regular close — matching how
                 // Yahoo displays them.
                 //
-                // Two subtleties fixed here:
-                //   1. Pre-market baseline: prefer `meta.previousClose` (calendar-
-                //      relative last regular close) over `meta.chartPreviousClose`.
-                //      chartPreviousClose tracks the chart's time window, which can
-                //      return a day earlier than expected when Yahoo hands back the
-                //      last completed session's bars (producing a two-day-stale
-                //      baseline).
-                //   2. Staleness: only trust `meta.preMarketPrice` / `postMarketPrice`
-                //      when their timestamp falls inside today's pre/post window.
-                //      Yahoo often leaves yesterday's value in those fields after a
-                //      session boundary, which would otherwise be compared against
-                //      the current regular price and produce a nonsense change.
-                const priorRegClose = meta.previousClose ?? meta.chartPreviousClose ?? null;
+                // Use the same prior anchor as `previousClose` above (chartPreviousClose
+                // ?? previousClose). A separate meta.previousClose-first baseline for PRE
+                // diverged from REG on Mon pre-market (wrong vs Fri close).
+                // Staleness: only trust `meta.preMarketPrice` / `postMarketPrice`
+                // when their timestamp falls inside today's pre/post window.
+                const priorCloseAnchor = previousClose;
                 const preInWindow  = Number.isFinite(meta.preMarketTime)  && preWin
                     && meta.preMarketTime  >= preWin[0]  && meta.preMarketTime  < preWin[1];
                 const postInWindow = Number.isFinite(meta.postMarketTime) && postWin
@@ -1874,9 +2067,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const postMarketPrice = lastPostClose != null
                     ? lastPostClose
                     : (Number.isFinite(meta.postMarketPrice) && postInWindow ? meta.postMarketPrice : null);
-                const preMarketChange  = preMarketPrice  != null && priorRegClose != null ? (preMarketPrice  - priorRegClose) : null;
+                const preMarketChange  = preMarketPrice  != null && priorCloseAnchor != null ? (preMarketPrice  - priorCloseAnchor) : null;
                 const postMarketChange = postMarketPrice != null && regularPrice  != null ? (postMarketPrice - regularPrice)  : null;
-                const preMarketChangePercent  = preMarketChange  != null && priorRegClose ? (preMarketChange  / priorRegClose) * 100 : null;
+                const preMarketChangePercent  = preMarketChange  != null && priorCloseAnchor ? (preMarketChange  / priorCloseAnchor) * 100 : null;
                 const postMarketChangePercent = postMarketChange != null && regularPrice  ? (postMarketChange / regularPrice)  * 100 : null;
 
                 // Derive marketState from tradingPeriod timestamps when meta
@@ -2273,14 +2466,68 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
             q.ts = Date.now();
             q.stale = false;
+            scheduleQuoteCachePersist();
         }
 
         /** Synthetic EXTERNAL ACCOUNT tray selection: all CSV accounts combined (chip label TOTALS!). */
         const EXTERNAL_ACCOUNT_TOTALS_ID = '__EXTERNAL_TOTALS__';
+        /** Multi-account combined view: only rows whose Account Name is in `externalCombinedAccounts` (Shift+click / long-press). */
+        const EXTERNAL_ACCOUNT_SUBSET_ID = '__EXTERNAL_SUBSET__';
 
-        function externalAccountTrayLabel(accountId) {
+        function externalPanelSubsetAccountNames(panel) {
+            const a = panel.externalCombinedAccounts;
+            if (!Array.isArray(a) || a.length < 2) return null;
+            const vis = new Set(
+                getExternalAccountNamesForPanel(panel).filter((n) => n && n !== EXTERNAL_ACCOUNT_TOTALS_ID)
+            );
+            const picked = [];
+            for (const n of a) {
+                if (vis.has(n) && !picked.includes(n)) picked.push(n);
+            }
+            return picked.length >= 2 ? picked : null;
+        }
+
+        function externalPanelIsSubsetCombined(panel) {
+            return (
+                panel.externalSelectedAccount === EXTERNAL_ACCOUNT_SUBSET_ID
+                && externalPanelSubsetAccountNames(panel) != null
+            );
+        }
+
+        function externalAccountTrayLabel(accountId, panel) {
             if (accountId === EXTERNAL_ACCOUNT_TOTALS_ID) return 'TOTALS!';
+            if (accountId === EXTERNAL_ACCOUNT_SUBSET_ID && panel) {
+                const s = externalPanelSubsetAccountNames(panel);
+                if (s && s.length) {
+                    if (s.length === 2) return `${truncate(s[0], 14)} + ${truncate(s[1], 14)}`;
+                    return `${s.length} ACCOUNTS`;
+                }
+            }
             return String(accountId || '');
+        }
+
+        /** After CSV / hide changes: drop invalid combined selection or repair to visible accounts. */
+        function externalNormalizeSelectionAfterAccountListChange(panel) {
+            if (!panel || panel.type !== 'externalAccount') return;
+            const vis = getExternalAccountNamesForPanel(panel);
+            const subset = externalPanelSubsetAccountNames(panel);
+            if (subset) {
+                const ok = subset.filter((n) => vis.includes(n) && n !== EXTERNAL_ACCOUNT_TOTALS_ID);
+                if (ok.length >= 2) {
+                    panel.externalCombinedAccounts = ok;
+                    panel.externalSelectedAccount = EXTERNAL_ACCOUNT_SUBSET_ID;
+                } else if (ok.length === 1) {
+                    delete panel.externalCombinedAccounts;
+                    panel.externalSelectedAccount = ok[0];
+                } else {
+                    delete panel.externalCombinedAccounts;
+                    panel.externalSelectedAccount = vis[0] || null;
+                }
+                return;
+            }
+            if (panel.externalSelectedAccount && !vis.includes(panel.externalSelectedAccount)) {
+                panel.externalSelectedAccount = vis[0] || null;
+            }
         }
 
         /** TOTALS! rollup excludes rows whose account was hidden ([×]); empty account name still counts. */
@@ -2302,15 +2549,22 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
             for (const pid of state.layout) {
                 const p = state.panels[pid];
-                if (!p || p.type !== 'externalAccount' || !p.externalImport?.rows?.length || !p.externalSelectedAccount) continue;
+                if (!p || p.type !== 'externalAccount' || !p.externalSelectedAccount) continue;
+                const merged = getExternalMergedRows(p);
+                if (!merged.length) continue;
                 const acct = p.externalSelectedAccount;
+                const subset = externalPanelSubsetAccountNames(p);
                 const hit = acct === EXTERNAL_ACCOUNT_TOTALS_ID
-                    ? p.externalImport.rows.some(
+                    ? merged.some(
                         r => externalRowIncludedInTotals(p, r) && getExternalRowQuoteKey(p, r) === sym
                     )
-                    : p.externalImport.rows.some(
-                        r => r.accountName === acct && getExternalRowQuoteKey(p, r) === sym
-                    );
+                    : subset
+                        ? merged.some(
+                            r => subset.includes(r.accountName) && getExternalRowQuoteKey(p, r) === sym
+                        )
+                        : merged.some(
+                            r => r.accountName === acct && getExternalRowQuoteKey(p, r) === sym
+                        );
                 if (hit) rerenderPanelBody(pid);
             }
         }
@@ -2610,16 +2864,104 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             return Number.isFinite(n) ? n : null;
         }
 
+        /** First ticker-like token (before * / spaces) for matching sweep/MM codes. */
+        function externalCsvBaseTicker(symbolRaw) {
+            const s = String(symbolRaw || '').trim().toUpperCase();
+            if (!s) return '';
+            const noStars = s.split(/\*+/)[0].trim();
+            const tok = (noStars.split(/\s+/)[0] || '').replace(/[^A-Z0-9]/g, '');
+            return tok || '';
+        }
+
+        /** Parsed Fidelity "Current Value" for one row (used when we skip Yahoo for MM / sweep lines). */
+        function externalCsvMarketValueDollars(row) {
+            const v = row && row.currentValueCsv;
+            return v != null && Number.isFinite(Number(v)) ? Number(v) : null;
+        }
+
+        /**
+         * Fidelity cash / core / sweep style: Symbol has ** (e.g. SPAXX**, CORE**, FDRXX**) or base ticker is 5+ letters ending XX
+         * (e.g. FTEXX, FZDXX, FMPXX) — use CSV Current Value, not Yahoo. User can SYM-override to a listed ticker if needed.
+         * Length ≥ 5 avoids short symbols like VXX (3) that happen to end in XX.
+         */
+        function externalCsvSymbolUsesStatementValue(symbolRaw) {
+            const raw = String(symbolRaw || '').trim();
+            if (!raw) return false;
+            if (raw.includes('**')) return true;
+            const base = externalCsvBaseTicker(raw);
+            return base.length >= 5 && base.endsWith('XX');
+        }
+
+        /**
+         * Use CSV Current Value (+ CSV Qty for implied PRICE) instead of Yahoo — ** lines or …XX sweep/MM pattern,
+         * unless the user mapped SYM to a real Yahoo ticker.
+         */
+        function externalRowUsesCsvMarketValue(panel, row) {
+            const csvKey = externalOverrideKeyFromRow(row);
+            const ov = csvKey && panel.externalSymbolOverrides && panel.externalSymbolOverrides[csvKey];
+            if (ov != null && String(ov).trim()) return false;
+            const raw = String(row?.symbol || '').trim();
+            if (!raw) return false;
+            return externalCsvSymbolUsesStatementValue(raw);
+        }
+
+        /**
+         * Fidelity foreign-cash Symbol (ISO) → Yahoo FX pair; row USD value = qty × spot or qty ÷ spot
+         * (USDJPY/USDCAD/USDCHF quote convention = foreign units per 1 USD).
+         */
+        const EXTERNAL_FIAT_FOREX_USD = {
+            EUR: { yahoo: 'EURUSD=X', divide: false },
+            GBP: { yahoo: 'GBPUSD=X', divide: false },
+            AUD: { yahoo: 'AUDUSD=X', divide: false },
+            NZD: { yahoo: 'NZDUSD=X', divide: false },
+            CAD: { yahoo: 'USDCAD=X', divide: true },
+            CHF: { yahoo: 'USDCHF=X', divide: true },
+            JPY: { yahoo: 'USDJPY=X', divide: true },
+        };
+
+        /** Yahoo key for bare ISO cash symbol when user has not SYM-overridden the row. */
+        function externalFiatCashSymbolToYahoo(symbolUpper) {
+            const spec = EXTERNAL_FIAT_FOREX_USD[symbolUpper];
+            return spec ? spec.yahoo : null;
+        }
+
+        /** Override map key = Fidelity CSV `Symbol` cell (e.g. CUSIP) — survives re-import next week. */
+        function externalOverrideKeyFromRow(row) {
+            return (row && row.symbol != null) ? String(row.symbol).trim() : '';
+        }
+
+        /** Fiat-cash FX spec for this row, or null if SYM override is set or symbol is not a known ISO cash line. */
+        function externalFiatForexSpec(panel, row) {
+            const csvKey = externalOverrideKeyFromRow(row);
+            const ov = csvKey && panel.externalSymbolOverrides && panel.externalSymbolOverrides[csvKey];
+            if (ov != null && String(ov).trim()) return null;
+            const u = String(row?.symbol || '').trim().toUpperCase();
+            return EXTERNAL_FIAT_FOREX_USD[u] || null;
+        }
+
+        /**
+         * USD market value from Yahoo `price` for this row’s `quoteKey` (handles EURUSD vs USDJPY-style quotes).
+         * EUR row: qty in EUR, price = USD per EUR → multiply. JPY row: qty in yen, USDJPY = yen per USD → divide.
+         */
+        function externalRowValueUsdFromQuote(panel, row, quoteKey, price, qtyNum) {
+            if (price == null || !Number.isFinite(price) || qtyNum == null || !Number.isFinite(qtyNum)) return null;
+            const spec = externalFiatForexSpec(panel, row);
+            if (spec && quoteKey === spec.yahoo && spec.divide) return qtyNum / price;
+            return qtyNum * price;
+        }
+
         /** Map Fidelity CSV symbol to Yahoo Finance key, or null if we should not fetch quotes. */
         function externalCsvSymbolToQuoteKey(symbol) {
             const raw = String(symbol || '').trim();
             if (!raw) return null;
             const u = raw.toUpperCase();
-            if (u.includes('**')) return null;
+            if (externalCsvSymbolUsesStatementValue(raw)) return null;
             if (/ESC/i.test(raw) && /\d/.test(raw)) return null;
             if (/^[0-9]{5,}[A-Z0-9]*$/i.test(u) && u.length >= 8) return null;
             const map = { BRKB: 'BRK-B', BRKA: 'BRK-A' };
             if (map[u]) return map[u];
+            const fiatY = externalFiatCashSymbolToYahoo(u);
+            if (fiatY) return fiatY;
             return u;
         }
 
@@ -2631,9 +2973,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             return map[t] || t;
         }
 
-        /** Override map key = Fidelity CSV `Symbol` cell (e.g. CUSIP) — survives re-import next week. */
-        function externalOverrideKeyFromRow(row) {
-            return (row && row.symbol != null) ? String(row.symbol).trim() : '';
+        /** Fidelity restricted / CUSIP-style Symbol (numeric id, length ≥ 8) — same gate as no-Yahoo in externalCsvSymbolToQuoteKey. */
+        function isExternalRestrictedCsvSymbol(symRaw) {
+            const u = String(symRaw || '').trim().toUpperCase();
+            if (!u || u.length < 8) return false;
+            return /^[0-9]{5,}[A-Z0-9]*$/i.test(u);
         }
 
         /**
@@ -2650,8 +2994,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
         /** Migrate old row-index overrides { "0":"BFLY" } → { "12499D575":"BFLY" } using current import rows. */
         function migrateLegacyExternalSymbolOverrideKeys(panel) {
-            if (!panel?.externalSymbolOverrides || !panel.externalImport?.rows?.length) return false;
-            const rows = panel.externalImport.rows;
+            const rows = getExternalMergedRows(panel);
+            if (!panel?.externalSymbolOverrides || !rows.length) return false;
             const o = panel.externalSymbolOverrides;
             const next = { ...o };
             let changed = false;
@@ -2674,8 +3018,90 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             return true;
         }
 
-        function getExternalAccountNamesFromImport(extImp) {
-            const rows = extImp?.rows;
+        /** A→Z order for tray account chips (same idea as symbol A→Z; case-insensitive). */
+        function sortExternalAccountNamesByLabel(names) {
+            if (!Array.isArray(names) || !names.length) return names || [];
+            return names.slice().sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+        }
+
+        /**
+         * One loaded Fidelity CSV = one bundle { id, fileName, importedAt, rows }.
+         * Legacy single `panel.externalImport` is upgraded to `panel.externalSources = [bundle]` on first read.
+         */
+        function ensureExternalBundles(panel) {
+            if (!panel || panel.type !== 'externalAccount') return;
+            if (Array.isArray(panel.externalSources) && panel.externalSources.length) {
+                if (panel.externalImport) delete panel.externalImport;
+                return;
+            }
+            if (panel.externalImport && panel.externalImport.rows && panel.externalImport.rows.length) {
+                panel.externalSources = [{
+                    id: `legacy-${panel.externalImport.importedAt || Date.now()}`,
+                    fileName: panel.externalImport.fileName || 'Portfolio_Positions.csv',
+                    importedAt: panel.externalImport.importedAt || Date.now(),
+                    rows: panel.externalImport.rows,
+                }];
+                delete panel.externalImport;
+                return;
+            }
+            panel.externalSources = panel.externalSources || [];
+        }
+
+        function getExternalMergedRows(panel) {
+            ensureExternalBundles(panel);
+            const out = [];
+            for (const s of panel.externalSources || []) {
+                for (const r of s.rows || []) out.push(r);
+            }
+            return out;
+        }
+
+        function externalPanelHasRows(panel) {
+            return getExternalMergedRows(panel).length > 0;
+        }
+
+        /** Panel title snippet: one filename truncated, or "N CSVs" when multiple bundles are loaded. */
+        function externalFileLabelForTitle(panel) {
+            ensureExternalBundles(panel);
+            const srcs = panel.externalSources || [];
+            if (!srcs.length) return '';
+            if (srcs.length === 1) return truncate(srcs[0].fileName || 'CSV', 22);
+            return `${srcs.length} CSVs`;
+        }
+
+        function buildExternalAccountMemorySnapshot(p) {
+            ensureExternalBundles(p);
+            externalRefreshRestrictedLotPrefsInMemory(p);
+            const lotPrefs = (p.memory && p.memory.externalAccount && p.memory.externalAccount.restrictedLotPrefs)
+                ? { ...p.memory.externalAccount.restrictedLotPrefs }
+                : {};
+            const snap = {
+                externalSources: (p.externalSources || []).map(s => ({
+                    id: s.id,
+                    fileName: s.fileName,
+                    importedAt: s.importedAt,
+                    rows: (s.rows || []).map(row => ({ ...row })),
+                })),
+                externalSelectedAccount: p.externalSelectedAccount ?? null,
+                externalCombinedAccounts:
+                    Array.isArray(p.externalCombinedAccounts) && p.externalCombinedAccounts.length >= 2
+                        ? [...p.externalCombinedAccounts]
+                        : undefined,
+                externalSymbolOverrides: { ...(p.externalSymbolOverrides || {}) },
+                externalHiddenAccounts: [...(p.externalHiddenAccounts || [])],
+                externalCostBasisOverrides: { ...(p.externalCostBasisOverrides || {}) },
+                restrictedLotPrefs: lotPrefs,
+            };
+            if (p.sort && p.sort.key) snap.externalSort = { ...p.sort };
+            if (p.display === 'heatmap') snap.externalDisplay = 'heatmap';
+            if (p.memory?.externalAccount?.plDisplayMode === 'daily') snap.plDisplayMode = 'daily';
+            return snap;
+        }
+
+        function getExternalAccountNamesFromImport(extImpOrPanel) {
+            const rows = Array.isArray(extImpOrPanel?.rows)
+                ? extImpOrPanel.rows
+                : getExternalMergedRows(extImpOrPanel);
             if (!Array.isArray(rows) || !rows.length) return [];
             const seen = new Set();
             const out = [];
@@ -2685,13 +3111,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 seen.add(n);
                 out.push(n);
             }
-            return out;
+            return sortExternalAccountNamesByLabel(out);
         }
 
         /** Account names from CSV minus user-hidden accounts, plus synthetic TOTALS! first (EXTERNAL ACCOUNT tray). */
         function getExternalAccountNamesForPanel(panel) {
-            if (!panel?.externalImport?.rows?.length) return [];
-            const all = getExternalAccountNamesFromImport(panel.externalImport);
+            if (!externalPanelHasRows(panel)) return [];
+            const all = getExternalAccountNamesFromImport(panel);
             const hide = Array.isArray(panel?.externalHiddenAccounts) ? panel.externalHiddenAccounts : [];
             const hideSet = new Set(hide);
             const real = all.filter(n => n && !hideSet.has(n));
@@ -2714,18 +3140,24 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             return ck ? ck.toUpperCase() : '';
         }
 
-        /** Manual cost basis overrides — stable when CSV row order changes (ticker|qtyNorm). */
+        /** Manual cost basis overrides — restricted lots use id:CSVSymbol|qty so same Yahoo + qty on different CUSIPs never collide. */
         function externalCostBasisOverrideKey(panel, row) {
-            const t = tickerForCostBasisKey(panel, row);
+            const ck = externalOverrideKeyFromRow(row);
             const q = normalizeQtyForCostKey(row.quantity);
-            if (!t || !q) return '';
+            if (!ck || !q) return '';
+            if (isExternalRestrictedCsvSymbol(ck)) {
+                return `id:${ck.toUpperCase()}|${q}`;
+            }
+            const t = tickerForCostBasisKey(panel, row);
+            if (!t) return '';
             return `${t}|${q}`;
         }
 
         /** Quantity for a ticker|qty cost key (first matching import row). */
         function externalQuantityForCostBasisKey(panel, costKey) {
-            if (!costKey || !panel?.externalImport?.rows?.length) return null;
-            for (const r of panel.externalImport.rows) {
+            const rows = getExternalMergedRows(panel);
+            if (!costKey || !rows.length) return null;
+            for (const r of rows) {
                 if (externalCostBasisOverrideKey(panel, r) !== costKey) continue;
                 const q = r.quantity;
                 if (q != null && Number.isFinite(Number(q))) return Number(q);
@@ -2735,21 +3167,115 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
         function effectiveCostBasis(panel, row) {
             if (row.costBasisTotal != null && Number.isFinite(row.costBasisTotal)) return row.costBasisTotal;
+            if (!panel.externalCostBasisOverrides) return null;
             const k = externalCostBasisOverrideKey(panel, row);
-            if (!k || !panel.externalCostBasisOverrides) return null;
-            const v = panel.externalCostBasisOverrides[k];
-            return Number.isFinite(v) ? v : null;
+            if (k) {
+                const v = panel.externalCostBasisOverrides[k];
+                if (Number.isFinite(v)) return v;
+            }
+            const ck = externalOverrideKeyFromRow(row);
+            if (isExternalRestrictedCsvSymbol(ck)) {
+                const yk = getExternalRowQuoteKey(panel, row);
+                const q = normalizeQtyForCostKey(row.quantity);
+                if (yk && q) {
+                    const legacy = `${yk}|${q}`;
+                    const v2 = panel.externalCostBasisOverrides[legacy];
+                    if (Number.isFinite(v2)) return v2;
+                }
+            }
+            return null;
         }
 
         /** All cost keys present in current import (every row) — for merge on CSV reload. */
         function collectExternalCostBasisKeysAcrossImport(panel) {
             const keys = new Set();
-            if (!panel?.externalImport?.rows?.length) return keys;
-            for (const r of panel.externalImport.rows) {
+            const rows = getExternalMergedRows(panel);
+            if (!rows.length) return keys;
+            for (const r of rows) {
                 const k = externalCostBasisOverrideKey(panel, r);
                 if (k) keys.add(k);
             }
             return keys;
+        }
+
+        /** Merge live restricted SYM + manual cost totals into memory for export / rehydrate after CSV changes. */
+        function externalRefreshRestrictedLotPrefsInMemory(panel) {
+            if (!panel || panel.type !== 'externalAccount') return;
+            panel.memory = panel.memory || {};
+            panel.memory.externalAccount = panel.memory.externalAccount || {};
+            const prev = { ...(panel.memory.externalAccount.restrictedLotPrefs || {}) };
+            const merged = getExternalMergedRows(panel);
+            const ov = panel.externalSymbolOverrides || {};
+            const cost = panel.externalCostBasisOverrides || {};
+            for (const r of merged) {
+                const ck = externalOverrideKeyFromRow(r);
+                if (!isExternalRestrictedCsvSymbol(ck)) continue;
+                const ku = ck.toUpperCase();
+                const y = ov[ck];
+                const costK = externalCostBasisOverrideKey(panel, r);
+                const mt = costK && cost[costK];
+                const ent = { ...(prev[ku] || {}) };
+                if (y != null && String(y).trim()) ent.yahooSym = String(y).trim();
+                else delete ent.yahooSym;
+                if (mt != null && Number.isFinite(mt)) ent.manualCostTotal = mt;
+                else delete ent.manualCostTotal;
+                if (Object.keys(ent).length) prev[ku] = ent;
+                else delete prev[ku];
+            }
+            panel.memory.externalAccount.restrictedLotPrefs = prev;
+        }
+
+        /** Apply stored restricted-lot prefs onto live overrides for rows currently in the merge. */
+        function externalRehydrateRestrictedLotPrefsToLive(panel) {
+            const prefs = panel.memory?.externalAccount?.restrictedLotPrefs;
+            if (!prefs || typeof prefs !== 'object') return;
+            panel.externalSymbolOverrides = { ...(panel.externalSymbolOverrides || {}) };
+            panel.externalCostBasisOverrides = { ...(panel.externalCostBasisOverrides || {}) };
+            for (const r of getExternalMergedRows(panel)) {
+                const ck = externalOverrideKeyFromRow(r);
+                if (!isExternalRestrictedCsvSymbol(ck)) continue;
+                const pref = prefs[ck.toUpperCase()];
+                if (!pref) continue;
+                if (pref.yahooSym != null && String(pref.yahooSym).trim()) {
+                    panel.externalSymbolOverrides[ck] = String(pref.yahooSym).trim();
+                }
+                const costK = externalCostBasisOverrideKey(panel, r);
+                if (costK && pref.manualCostTotal != null && Number.isFinite(pref.manualCostTotal)) {
+                    panel.externalCostBasisOverrides[costK] = pref.manualCostTotal;
+                }
+            }
+        }
+
+        /** One-time: move manual cost from legacy Yahoo|qty keys to id:CUSIP|qty for restricted rows. */
+        function migrateLegacyExternalCostBasisForRestricted(panel) {
+            const cost = panel.externalCostBasisOverrides;
+            if (!cost || typeof cost !== 'object') return false;
+            const rows = getExternalMergedRows(panel);
+            if (!rows.length) return false;
+            const next = { ...cost };
+            let changed = false;
+            for (const r of rows) {
+                const ck = externalOverrideKeyFromRow(r);
+                if (!isExternalRestrictedCsvSymbol(ck)) continue;
+                const newK = externalCostBasisOverrideKey(panel, r);
+                if (!newK || next[newK] != null) continue;
+                const yk = getExternalRowQuoteKey(panel, r);
+                const q = normalizeQtyForCostKey(r.quantity);
+                if (!yk || !q) continue;
+                const oldK = `${yk}|${q}`;
+                const v = next[oldK];
+                if (v != null && Number.isFinite(v)) {
+                    next[newK] = v;
+                    delete next[oldK];
+                    changed = true;
+                }
+            }
+            if (!changed) return false;
+            panel.externalCostBasisOverrides = next;
+            if (panel.memory?.externalAccount) {
+                panel.memory.externalAccount.externalCostBasisOverrides = { ...next };
+            }
+            return true;
         }
 
         function parseFidelityPositionsCsv(text) {
@@ -2767,6 +3293,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             const iLast = idx('Last Price');
             const iCurVal = idx('Current Value');
             const iCost = idx('Cost Basis Total');
+            const iAvgCost = idx('Average Cost Basis');
             const iTgl = idx("Today's Gain/Loss Dollar");
             const iTtl = idx('Total Gain/Loss Dollar');
             const iType = idx('Type');
@@ -2779,16 +3306,24 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const accountName = cell(iAcctName);
                 const sym = cell(iSym);
                 if (!sym && !accountName) continue;
+                const qtyParsed = parseFidelityNumCell(iQty >= 0 ? cells[iQty] : null);
+                let costBasisTotal = parseFidelityMoneyCell(iCost >= 0 ? cells[iCost] : null);
+                const avgCostPerShare = parseFidelityMoneyCell(iAvgCost >= 0 ? cells[iAvgCost] : null);
+                if ((costBasisTotal == null || !Number.isFinite(costBasisTotal))
+                    && avgCostPerShare != null && Number.isFinite(avgCostPerShare)
+                    && qtyParsed != null && Number.isFinite(qtyParsed) && qtyParsed !== 0) {
+                    costBasisTotal = Number((avgCostPerShare * qtyParsed).toFixed(2));
+                }
                 const row = {
                     accountNumber: iAcctNum >= 0 ? cell(iAcctNum) : '',
                     accountName,
                     symbol: sym,
                     description: iDesc >= 0 ? cell(iDesc) : '',
-                    quantity: parseFidelityNumCell(iQty >= 0 ? cells[iQty] : null),
+                    quantity: qtyParsed,
                     // Parsed for possible future use — EXTERNAL ACCOUNT UI uses live Yahoo quotes only (no CSV Last Price).
                     lastPriceCsv: parseFidelityMoneyCell(iLast >= 0 ? cells[iLast] : null),
                     currentValueCsv: parseFidelityMoneyCell(iCurVal >= 0 ? cells[iCurVal] : null),
-                    costBasisTotal: parseFidelityMoneyCell(iCost >= 0 ? cells[iCost] : null),
+                    costBasisTotal,
                     todayGainLossCsv: parseFidelityMoneyCell(iTgl >= 0 ? cells[iTgl] : null),
                     totalGainLossCsv: parseFidelityMoneyCell(iTtl >= 0 ? cells[iTtl] : null),
                     rowType: iType >= 0 ? cell(iType) : '',
@@ -2799,19 +3334,24 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     accountNames.push(accountName);
                 }
             }
-            return { rows, accountNames };
+            return { rows, accountNames: sortExternalAccountNamesByLabel(accountNames) };
         }
 
         function collectExternalAccountQuoteSymbols() {
             const set = new Set();
             for (const pid of state.layout) {
                 const p = state.panels[pid];
-                if (!p || p.type !== 'externalAccount' || !p.externalImport?.rows?.length) continue;
+                if (!p || p.type !== 'externalAccount') continue;
+                const merged = getExternalMergedRows(p);
+                if (!merged.length) continue;
                 const acct = p.externalSelectedAccount;
                 if (!acct) continue;
-                p.externalImport.rows.forEach((r) => {
+                const subset = externalPanelSubsetAccountNames(p);
+                merged.forEach((r) => {
                     if (acct === EXTERNAL_ACCOUNT_TOTALS_ID) {
                         if (!externalRowIncludedInTotals(p, r)) return;
+                    } else if (subset) {
+                        if (!subset.includes(r.accountName)) return;
                     } else if (r.accountName !== acct) return;
                     const qk = getExternalRowQuoteKey(p, r);
                     if (qk) set.add(qk);
@@ -2837,6 +3377,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             // VIX is useful for movers/sentiment even if user didn't add it
             if (!set.has('^VIX')) set.add('^VIX');
             return Array.from(set);
+        }
+
+        /** Before network refresh: mark cached quotes stale so UI shows last values dimmed (not blank) until new data arrives. */
+        function markQuoteCacheStaleBeforeFetch() {
+            for (const sym of collectAllSymbols()) {
+                if (quoteCache[sym]) quoteCache[sym].stale = true;
+            }
         }
 
         async function refreshQuotes() {
@@ -3115,6 +3662,23 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             return ev.categoryIds && ev.categoryIds.includes(filterKey);
         }
 
+        function getEonetActiveFilterKeys(panel) {
+            const arr = panel.eonetFilters;
+            if (Array.isArray(arr) && arr.length) {
+                const ok = arr.filter((k) => EONET_FILTER_CHIPS.some((c) => c.key === k));
+                if (ok.length) return [...new Set(ok)];
+            }
+            const fk = panel.eonetFilter || 'wildfires';
+            return [fk];
+        }
+
+        function eonetEventMatchesPanelFilters(ev, panel) {
+            const keys = getEonetActiveFilterKeys(panel);
+            if (!keys.length) return true;
+            if (keys.includes('all')) return true;
+            return keys.some((fk) => eonetEventPassesFilter(ev, fk));
+        }
+
         async function fetchEonetGeojson() {
             const bust = (EONET_GEOJSON_URL.includes('?') ? '&' : '?') + '_t=' + Date.now();
             try {
@@ -3187,7 +3751,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         async function refreshEonetPanels() {
             const ids = state.layout.filter(pid => state.panels[pid]?.type === 'eonet');
             if (!ids.length) return;
-            const filters = new Set(ids.map(id => state.panels[id].eonetFilter || 'wildfires'));
+            const filters = new Set(ids.flatMap((id) => getEonetActiveFilterKeys(state.panels[id])));
             const oneChip = filters.size === 1 ? [...filters][0] : null;
             const useCategoryFirst = oneChip && oneChip !== 'all';
 
@@ -3225,6 +3789,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             if (btn) btn.disabled = true;
             updateStatus('FETCHING…', 'normal');
             try {
+                markQuoteCacheStaleBeforeFetch();
+                renderAllPanels();
                 await Promise.all([refreshQuotes(), refreshNewsPanels(), refreshPredictionPanels(), refreshSeismicPanels(), refreshStormPanels(), refreshEonetPanels()]);
                 renderAllPanels();
                 if (currentDrilldown && currentDrilldown.kind === 'ticker') {
@@ -3235,6 +3801,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 updateStatus('CONNECTED', 'normal');
                 updateTimestamps();
                 updateMarketStatus();
+                scheduleQuoteCachePersist();
             } catch (err) {
                 console.error('refresh error:', err);
                 updateStatus('CONNECTION ERROR', 'error');
@@ -3244,6 +3811,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     renderDrilldownPrice(dds);
                     await resyncDrilldownTickerChart(dds);
                 }
+                scheduleQuoteCachePersist();
             } finally {
                 isRefreshing = false;
                 if (btn) btn.disabled = false;
@@ -3335,20 +3903,22 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 return ` <span style="color:var(--text-secondary);font-weight:400;">· ${b ? b.label : panel.basin}${g}</span>`;
             }
             if (panel.type === 'eonet') {
-                const chip = EONET_FILTER_CHIPS.find(x => x.key === (panel.eonetFilter || 'wildfires'));
+                const keys = getEonetActiveFilterKeys(panel);
+                const labs = keys.map((k) => (EONET_FILTER_CHIPS.find((x) => x.key === k) || {}).label || k);
+                const labStr = labs.length > 2 ? `${labs.slice(0, 2).join('+')}+…` : labs.join('+');
                 const g = panel.display === 'globe' ? ' · GLOBE' : '';
-                return ` <span style="color:var(--text-secondary);font-weight:400;">· ${chip ? chip.label : '—'}${g}</span>`;
+                return ` <span style="color:var(--text-secondary);font-weight:400;">· ${escapeHTML(labStr || '—')}${g}</span>`;
             }
             if (panel.type === 'calendar' && panel.category && panel.category !== 'all') {
                 const c = CALENDAR_CATEGORIES.find(x => x.key === panel.category);
                 return ` <span style="color:var(--text-secondary);font-weight:400;">· ${c ? c.label.toUpperCase() : panel.category.toUpperCase()}</span>`;
             }
             if (panel.type === 'externalAccount') {
-                const fn = panel.externalImport?.fileName;
+                const fn = externalFileLabelForTitle(panel);
                 const ac = panel.externalSelectedAccount;
                 const bits = [];
-                if (fn) bits.push(truncate(fn, 22));
-                if (ac) bits.push(truncate(externalAccountTrayLabel(ac), 18));
+                if (fn) bits.push(fn);
+                if (ac) bits.push(truncate(externalAccountTrayLabel(ac, panel), 18));
                 if (panel.display === 'heatmap') bits.push('HEAT MAP');
                 else if (panel.sort?.key === 'symbol') bits.push(panel.sort.dir === 'desc' ? 'Z→A' : 'A→Z');
                 else if (panel.sort?.key === 'portfolioPct') {
@@ -3508,11 +4078,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
             let eonetSection = '';
             if (panel.type === 'eonet') {
-                const currentF = panel.eonetFilter || 'wildfires';
-                const chips = EONET_FILTER_CHIPS.map(c => {
-                    const active = currentF === c.key ? ' active' : '';
-                    const tit = escapeAttr(c.title);
-                    return `<button class="chip${active}" onclick="setEonetFilter('${pid}','${c.key}')" title="${tit}">${escapeHTML(c.label)}</button>`;
+                const eonetKeySet = new Set(getEonetActiveFilterKeys(panel));
+                const chips = EONET_FILTER_CHIPS.map((c) => {
+                    const active = eonetKeySet.has(c.key) ? ' active' : '';
+                    const tit = escapeAttr(`${c.title} · Shift+click or ⌘+click (or long-press ~0.5s) for multiple filters`);
+                    return `<button type="button" class="chip${active}" onclick="eonetChipClick(event,'${escapeAttr(pid)}','${escapeAttr(c.key)}')" onpointerdown="eonetChipPointerDown(event,'${escapeAttr(pid)}','${escapeAttr(c.key)}')" onpointerup="eonetChipPointerUp(event)" onpointercancel="eonetChipPointerUp(event)" title="${tit}">${escapeHTML(c.label)}</button>`;
                 }).join('');
                 const listActiveE = panel.display !== 'globe' ? ' active' : '';
                 const globeActiveE = panel.display === 'globe' ? ' active' : '';
@@ -3520,7 +4090,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     <div class="tray-row">
                         <span class="tray-label">FILTER</span>
                         ${chips}
-                        <span class="tray-hint">NASA EONET open events · 14d · no API key · globe dot = NASA size when given, else footprint+recency (not Richter)</span>
+                        <span class="tray-hint">NASA EONET open events · 14d · no API key · globe dot = NASA size when given, else footprint+recency (not Richter). <strong>Multi:</strong> Shift+click / ⌘+click chips (or long-press ~0.5s on touch) — list shows events in <em>any</em> selected category.</span>
                     </div>
                     <div class="tray-row">
                         <span class="tray-label">DISPLAY</span>
@@ -3560,25 +4130,31 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
             let externalAccountSection = '';
             if (panel.type === 'externalAccount') {
-                const fn = panel.externalImport?.fileName;
-                const names = panel.externalImport ? getExternalAccountNamesForPanel(panel) : [];
-                const fileRow = fn
-                    ? `<span class="tray-tag">${escapeHTML(fn)}<span class="tray-tag-x" onclick="clearExternalAccountImport('${pid}')">[×]</span></span>`
+                ensureExternalBundles(panel);
+                const srcs = panel.externalSources || [];
+                const names = externalPanelHasRows(panel) ? getExternalAccountNamesForPanel(panel) : [];
+                const fileRow = srcs.length
+                    ? srcs.map(s => `<span class="tray-tag">${escapeHTML(s.fileName || 'CSV')}<span class="tray-tag-x" onclick="removeExternalAccountBundle('${escapeAttr(pid)}','${escapeAttr(String(s.id || ''))}')">[×]</span></span>`).join('')
                     : '<span class="no-data">(no file)</span>';
+                const subsetSel = externalPanelSubsetAccountNames(panel);
                 const chips = names.map((n, i) => {
-                    const active = n === panel.externalSelectedAccount ? ' active' : '';
-                    const lab = externalAccountTrayLabel(n);
-                    const tit = escapeAttr(lab);
+                    const acSel = panel.externalSelectedAccount;
+                    const active = subsetSel
+                        ? (n !== EXTERNAL_ACCOUNT_TOTALS_ID && subsetSel.includes(n) ? ' active' : '')
+                        : (n === acSel ? ' active' : '');
+                    const lab = externalAccountTrayLabel(n, panel);
+                    const tit = escapeAttr(`${lab} · Shift+click or ⌘+click (or long-press ~0.5s) to combine accounts`);
                     const hideX = n === EXTERNAL_ACCOUNT_TOTALS_ID
                         ? ''
                         : `<span class="tray-tag-x" role="button" tabindex="0" onclick="event.preventDefault();event.stopPropagation();externalAccountHideAccountByIndex('${escapeAttr(pid)}',${i})">[×]</span>`;
-                    return `<span class="external-account-chip-wrap"><button type="button" class="chip${active}" onclick="setExternalAccountSelection('${pid}',${i})" title="${tit}">${escapeHTML(truncate(lab, 28))}</button>${hideX}</span>`;
+                    return `<span class="external-account-chip-wrap"><button type="button" class="chip${active}" onclick="externalAccountChipClick(event,'${escapeAttr(pid)}',${i})" onpointerdown="externalAccountChipPointerDown(event,'${escapeAttr(pid)}',${i})" onpointerup="externalAccountChipPointerUp(event)" onpointercancel="externalAccountChipPointerUp(event)" title="${tit}">${escapeHTML(truncate(lab, 28))}</button>${hideX}</span>`;
                 }).join('');
                 externalAccountSection = `
                     <div class="tray-row">
                         <span class="tray-label">LOAD</span>
-                        <button type="button" class="header-btn" onclick="promptExternalAccountCsv('${pid}')">LOAD CSV</button>
-                        <span class="tray-hint">Fidelity → Positions → export Portfolio_Positions*.csv · picker starts in Downloads when the browser supports it</span>
+                        <button type="button" class="header-btn" onclick="promptExternalAccountCsv('${pid}')">ADD CSV</button>
+                        ${srcs.length ? `<button type="button" class="header-btn" onclick="clearExternalAccountImport('${pid}')" title="Remove every loaded file and reset this panel">CLEAR ALL</button>` : ''}
+                        <span class="tray-hint">Fidelity → Positions → export Portfolio_Positions*.csv — each <strong>ADD CSV</strong> appends positions (accounts + TOTALS!) without dropping prior files; use each file’s <strong>[×]</strong> to remove one export, or <strong>CLEAR ALL</strong>. Picker starts in Downloads when the browser supports it.</span>
                         <input type="file" id="external-csv-${pid}" accept=".csv,text/csv" style="display:none"
                                onchange="onExternalAccountCsvInput('${pid}',this)">
                     </div>
@@ -3590,7 +4166,12 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         <span class="tray-label">ACCOUNT</span>
                         ${names.length ? chips : '<span class="no-data">Load a CSV first</span>'}
                     </div>
-                    ${panel.externalImport?.rows?.length ? `
+                    ${names.length > 2 ? `
+                    <div class="tray-row">
+                        <span class="tray-label"></span>
+                        <span class="tray-hint"><strong>Combine:</strong> Shift+click or ⌘+click another account (or <strong>long-press ~0.5s</strong> on phone/tablet) to roll up only those accounts — same layout as TOTALS!, not every file. Click TOTALS! to clear the multi-select.</span>
+                    </div>` : ''}
+                    ${externalPanelHasRows(panel) ? `
                     <div class="tray-row">
                         <span class="tray-label">DISPLAY</span>
                         ${(() => {
@@ -3607,6 +4188,18 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         <button class="chip${symActive}" onclick="cyclePanelSort('${pid}','symbol')" title="Table · A→Z / Z→A">${symLabel}</button>
                         <button class="chip${portActive}" onclick="cyclePanelSort('${pid}','portfolioPct')" title="Combined symbols · % of portfolio value">${portLabel}</button>
                         <button class="chip${heatActive}" onclick="togglePanelHeatmapDisplay('${pid}')" title="Treemap · tile size = value, color = day change%">HEAT MAP</button>`;
+                        })()}
+                    </div>
+                    <div class="tray-row">
+                        <span class="tray-label">P/L COLS</span>
+                        ${(() => {
+                            const daily = getExternalPlDisplayMode(panel) === 'daily';
+                            const tAct = !daily ? ' active' : '';
+                            const dAct = daily ? ' active' : '';
+                            return `
+                        <button class="chip${tAct}" onclick="setExternalPlDisplayMode('${pid}','total')" title="Last columns: total P/L vs cost">TOTAL P/L</button>
+                        <button class="chip${dAct}" onclick="setExternalPlDisplayMode('${pid}','daily')" title="Last columns: vs prior regular close">DAILY P/L</button>
+                        <span class="tray-hint">Table only · last two columns switch (cost P/L vs day $ / day %).</span>`;
                         })()}
                     </div>` : ''}
                 `;
@@ -3718,9 +4311,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     return `<div class="quote-row nodata" data-sym="${escapeAttr(sym)}" onclick="openDrilldown('${escapeAttr(sym)}')">
                         <div class="quote-row-main">
                             <span class="quote-sym">${escapeHTML(sym)}</span>
-                            <span class="quote-spark"></span>
-                            <span class="quote-price">--</span>
-                            <span class="quote-change">loading…</span>
+                            <span class="quote-spark"><span class="quote-spark--loading">loading…</span></span>
+                            <span class="quote-price">loading…</span>
+                            <span class="quote-change">—</span>
                         </div>
                     </div>`;
                 }
@@ -3739,7 +4332,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const tagHTML = v.sessionTag && v.sessionTag !== null
                     ? `<span class="quote-session-tag ${v.sessionTag === 'REG' ? 'reg' : 'ext'}">${v.sessionTag}</span>`
                     : '';
-                const sparkHTML = renderSparkline(q.closes, v.change);
+                const sparkNeedChart = !Array.isArray(q.closes) || q.closes.length < 2;
+                const sparkHTML = sparkNeedChart
+                    ? '<span class="quote-spark--loading">loading…</span>'
+                    : renderSparkline(q.closes, v.change);
                 const metaHTML = renderQuoteMeta(q, priceFormat, v);
                 return `<div class="quote-row${staleCls}" data-sym="${escapeAttr(sym)}" onclick="openDrilldown('${escapeAttr(sym)}')">
                     <div class="quote-row-main">
@@ -4351,18 +4947,27 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             const el = document.getElementById('ddPriceRow');
             if (!q) { el.innerHTML = '<span class="dd-price">--</span>'; return; }
             const pf = priceFormatForSymbol(sym);
-            // On 1D drilldown, headline matches last point of intraday series (same closes[] as thumb + big chart).
             const on1dTickerDd = currentDrilldown && currentDrilldown.kind === 'ticker'
                 && currentDrilldown.symbol === sym && (currentDrilldown.range || '1d') === '1d';
-            let headPrice = q.price;
-            let headChange = q.change;
-            let headPct = q.changePercent;
-            if (on1dTickerDd && Array.isArray(q.closes) && q.closes.length >= 2 && Number.isFinite(q.previousClose)) {
+            const ms = (q.marketState || '').toUpperCase();
+            // Headline: during RTH use last 1m bar vs prior close (matches chart). During PRE/POST/CLOSED use
+            // regular session close + RTH day move — not the extended-hours last print (avoids duplicating AH).
+            let headPrice = Number.isFinite(q.regularPrice) ? q.regularPrice : q.price;
+            let headChange = Number.isFinite(q.regularChange) ? q.regularChange : q.change;
+            let headPct = Number.isFinite(q.regularChangePercent) ? q.regularChangePercent : q.changePercent;
+            if (!Number.isFinite(headPrice)) {
+                headPrice = q.price;
+                headChange = q.change;
+                headPct = q.changePercent;
+            }
+            let headlineIsRthClose = ms !== 'REGULAR';
+            if (on1dTickerDd && ms === 'REGULAR' && Array.isArray(q.closes) && q.closes.length >= 2 && Number.isFinite(q.previousClose)) {
                 const last = q.closes[q.closes.length - 1];
                 if (Number.isFinite(last)) {
                     headPrice = last;
                     headChange = last - q.previousClose;
                     headPct = q.previousClose ? (headChange / q.previousClose) * 100 : 0;
+                    headlineIsRthClose = false;
                 }
             }
             const cls = headChange > 0 ? 'positive' : headChange < 0 ? 'negative' : 'neutral';
@@ -4401,7 +5006,12 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 buildExtRow('PRE', q.preMarketPrice, q.preMarketChange, q.preMarketChangePercent, q.preMarketVolume, q.preMarketTime) +
                 buildExtRow('AH',  q.postMarketPrice, q.postMarketChange, q.postMarketChangePercent, q.postMarketVolume, q.postMarketTime);
 
+            const regCloseTag = headlineIsRthClose
+                ? '<span class="dd-session-tag reg" title="Regular (RTH) session close vs prior close">REG</span>'
+                : '';
+
             el.innerHTML = `
+                ${regCloseTag}
                 <span class="dd-price">${formatPriceFor(pf, headPrice)}</span>
                 <span class="dd-change ${cls}">${changeStr}</span>
                 ${q.marketState ? `<span class="dd-market-state">${escapeHTML(q.marketState)}</span>` : ''}
@@ -4655,25 +5265,202 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             return (neg ? '-$' : '$') + body;
         }
 
+        /** QTY: whole shares when integral, else up to 2 decimal places (trim trailing zeros). */
+        function formatExternalQty(qty) {
+            if (qty == null || !Number.isFinite(Number(qty))) return '—';
+            const n = Number(qty);
+            const ir = Math.round(n);
+            if (Math.abs(n - ir) < 1e-6) return String(ir);
+            const r2 = Math.round(n * 100) / 100;
+            if (Math.abs(r2 - Math.round(r2)) < 1e-6) return String(Math.round(r2));
+            return r2.toFixed(2).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+        }
+
         function externalRowMergeKey(panel, row) {
-            const qk = getExternalRowQuoteKey(panel, row);
-            if (qk) return `q:${qk}`;
             const ck = externalOverrideKeyFromRow(row);
+            const qk = getExternalRowQuoteKey(panel, row);
+            if (qk && ck) return `q:${qk}|c:${ck.toUpperCase()}`;
+            if (qk) return `q:${qk}`;
             if (ck) return `c:${ck.toUpperCase()}`;
             return `u:${String(row.symbol || '')}|${normalizeQtyForCostKey(row.quantity)}`;
         }
 
-        /** Detail rows for the selected account or TOTALS! (each item keeps CSV file index). */
+        /** Detail rows for the selected account or TOTALS! (idx = global order across all loaded CSVs, for ENTERED sort). */
         function externalRowsDetailForView(panel) {
-            const imp = panel.externalImport;
+            ensureExternalBundles(panel);
             const acct = panel.externalSelectedAccount;
-            if (!imp?.rows?.length || !acct) return [];
+            const subset = externalPanelSubsetAccountNames(panel);
+            if (!externalPanelHasRows(panel) || (!acct && !subset)) return [];
             const names = getExternalAccountNamesForPanel(panel);
-            if (!names.includes(acct)) return [];
+            if (subset) {
+                if (acct !== EXTERNAL_ACCOUNT_SUBSET_ID) return [];
+            } else if (!acct || !names.includes(acct)) return [];
             const isTotals = acct === EXTERNAL_ACCOUNT_TOTALS_ID;
-            return imp.rows
-                .map((r, idx) => ({ r, idx }))
-                .filter(({ r }) => (isTotals ? externalRowIncludedInTotals(panel, r) : r.accountName === acct));
+            const isSubset = !!subset;
+            const out = [];
+            let idx = 0;
+            for (const s of panel.externalSources || []) {
+                for (const r of s.rows || []) {
+                    const i = idx++;
+                    let incl = false;
+                    if (isTotals) incl = externalRowIncludedInTotals(panel, r);
+                    else if (isSubset) incl = subset.includes(r.accountName);
+                    else incl = r.accountName === acct;
+                    if (incl) out.push({ r, idx: i });
+                }
+            }
+            return out;
+        }
+
+        /** TOTALS! only: `**` / …XX sweep/MM lines → Cash block (same rule as externalRowUsesCsvMarketValue). */
+        function externalRowIsTotalsSweepCashRow(panel, row) {
+            return externalRowUsesCsvMarketValue(panel, row);
+        }
+
+        /** Split merged view rows so sweep/MM cash sorts after securities in TOTALS!. */
+        function partitionTotalsSecuritiesAndCash(panel, viewList) {
+            const sec = [];
+            const cash = [];
+            for (const it of viewList) {
+                const r0 = it.kind === 'g' ? it.g.rows[0] : it.r;
+                (externalRowIsTotalsSweepCashRow(panel, r0) ? cash : sec).push(it);
+            }
+            return { sec, cash };
+        }
+
+        function externalHoldingsBumpSums(sums, value, costBasis, plD) {
+            if (value != null && Number.isFinite(value)) sums.sumValue += value;
+            if (costBasis != null && Number.isFinite(costBasis)) {
+                sums.sumCost += costBasis;
+                sums.hadAnyCost = true;
+            }
+            if (plD != null && Number.isFinite(plD)) {
+                sums.sumPlD += plD;
+                sums.hadAnyPl = true;
+            }
+        }
+
+        function externalHoldingsBumpDaily(sums, dayD, prevMvUsd) {
+            if (dayD != null && Number.isFinite(dayD)) {
+                sums.sumDayD += dayD;
+                sums.hadAnyDayD = true;
+            }
+            if (prevMvUsd != null && Number.isFinite(prevMvUsd)) sums.sumDayPrevMv += prevMvUsd;
+        }
+
+        /** EXTERNAL ACCOUNT table: last columns = cost-basis P/L vs prior-close day P/L. */
+        function getExternalPlDisplayMode(panel) {
+            return (panel && panel.memory && panel.memory.externalAccount && panel.memory.externalAccount.plDisplayMode === 'daily')
+                ? 'daily'
+                : 'total';
+        }
+
+        function setExternalPlDisplayMode(pid, mode) {
+            const p = state.panels[pid];
+            if (!p || p.type !== 'externalAccount') return;
+            p.memory.externalAccount = p.memory.externalAccount || {};
+            if (mode === 'daily') p.memory.externalAccount.plDisplayMode = 'daily';
+            else delete p.memory.externalAccount.plDisplayMode;
+            saveState();
+            // Rebuild panel shell + tray so P/L COLS chips get active class (same as DISPLAY sort chips).
+            state.ui.openTray = pid;
+            renderAllPanels();
+        }
+
+        function externalFormatDayPlPct(pct) {
+            if (pct == null || !Number.isFinite(pct)) return '—';
+            return ((pct > 0 ? '+' : '') + Math.round(pct) + '%');
+        }
+
+        /**
+         * Day $ / day % / prior MV (USD) for one holdings row vs prior regular close.
+         * `valueUsd` = current VALUE column (USD); must match resolveQuoteView(ext:false) price path.
+         */
+        function externalRowDailyPlFromDetail(panel, r, valueUsd) {
+            const csvStatic = externalRowUsesCsvMarketValue(panel, r);
+            if (csvStatic) {
+                const tgl = r.todayGainLossCsv != null && Number.isFinite(Number(r.todayGainLossCsv))
+                    ? Number(r.todayGainLossCsv)
+                    : null;
+                const cv = externalCsvMarketValueDollars(r);
+                const pct = (tgl != null && cv != null && Number.isFinite(cv) && cv !== 0) ? (tgl / cv) * 100 : null;
+                const prevMv = (tgl != null && cv != null && Number.isFinite(cv)) ? cv - tgl : null;
+                return { dayD: tgl, dayPct: pct, prevMvUsd: prevMv };
+            }
+            const qk = getExternalRowQuoteKey(panel, r);
+            const q = qk ? quoteCache[qk] : null;
+            if (!qk || !q) return { dayD: null, dayPct: null, prevMvUsd: null };
+            const pxPrev = q.previousClose != null && Number.isFinite(q.previousClose) ? q.previousClose : null;
+            if (pxPrev == null) return { dayD: null, dayPct: null, prevMvUsd: null };
+            const v = resolveQuoteView(q, { extendedHours: false });
+            const pxNow = v && Number.isFinite(v.price) ? v.price : null;
+            const qty = r.quantity != null && Number.isFinite(Number(r.quantity)) ? Number(r.quantity) : null;
+            if (qty == null || pxNow == null) return { dayD: null, dayPct: null, prevMvUsd: null };
+            const mvNow = valueUsd != null && Number.isFinite(valueUsd)
+                ? valueUsd
+                : externalRowValueUsdFromQuote(panel, r, qk, pxNow, qty);
+            const mvPrev = externalRowValueUsdFromQuote(panel, r, qk, pxPrev, qty);
+            if (mvNow == null || mvPrev == null) return { dayD: null, dayPct: null, prevMvUsd: mvPrev };
+            const dayD = mvNow - mvPrev;
+            const dayPct = mvPrev !== 0 ? (dayD / mvPrev) * 100 : null;
+            return { dayD, dayPct, prevMvUsd: mvPrev };
+        }
+
+        /** Aggregated day P/L for merged %PORT group (sums lines like externalAggregatedGroups). */
+        function externalGroupDailyPlFromRows(panel, g) {
+            let sumD = 0;
+            let sumPrev = 0;
+            let anyD = false;
+            for (const r of g.rows) {
+                const qty = r.quantity != null && Number.isFinite(Number(r.quantity)) ? Number(r.quantity) : 0;
+                let lineVal = null;
+                if (externalRowUsesCsvMarketValue(panel, r)) {
+                    const cv = externalCsvMarketValueDollars(r);
+                    if (cv != null && Number.isFinite(cv)) lineVal = cv;
+                } else {
+                    const qkr = getExternalRowQuoteKey(panel, r);
+                    const qr = qkr ? quoteCache[qkr] : null;
+                    const vr = qr ? resolveQuoteView(qr, { extendedHours: false }) : null;
+                    const pr = vr && Number.isFinite(vr.price) ? vr.price : null;
+                    if (pr != null && qty) {
+                        const usd = externalRowValueUsdFromQuote(panel, r, qkr, pr, qty);
+                        if (usd != null && Number.isFinite(usd)) lineVal = usd;
+                    }
+                }
+                const m = externalRowDailyPlFromDetail(panel, r, lineVal);
+                if (m.dayD != null && Number.isFinite(m.dayD)) {
+                    sumD += m.dayD;
+                    anyD = true;
+                    if (m.prevMvUsd != null && Number.isFinite(m.prevMvUsd)) sumPrev += m.prevMvUsd;
+                }
+            }
+            const dayPct = sumPrev !== 0 && anyD ? (sumD / sumPrev) * 100 : null;
+            return { dayD: anyD ? sumD : null, dayPct, prevMvUsd: sumPrev };
+        }
+
+        function externalHoldingsSubtotalHtml(label, sums, usePortSort, useDailyPl) {
+            const totValStr = formatExternalUsdWhole(sums.sumValue);
+            const totCostStr = sums.hadAnyCost ? formatExternalUsdWhole(sums.sumCost) : '—';
+            let totPlStr;
+            let totPlPctStr;
+            if (useDailyPl) {
+                totPlStr = sums.hadAnyDayD ? formatExternalUsdPlSigned(sums.sumDayD) : '—';
+                const agg = sums.sumDayPrevMv !== 0 && sums.hadAnyDayD
+                    ? (sums.sumDayD / sums.sumDayPrevMv) * 100
+                    : null;
+                totPlPctStr = externalFormatDayPlPct(agg);
+            } else {
+                totPlStr = sums.hadAnyPl ? formatExternalUsdPlSigned(sums.sumPlD) : '—';
+                totPlPctStr = '—';
+            }
+            if (usePortSort) {
+                return `<div class="external-holdings-subtotal">
+                <span>${escapeHTML(label)}</span><span class="num"></span><span class="num"></span><span class="num">${totValStr}</span><span class="num">—</span><span class="num">${totCostStr}</span><span class="num">${totPlStr}</span><span class="num">${totPlPctStr}</span>
+            </div>`;
+            }
+            return `<div class="external-holdings-subtotal">
+                <span>${escapeHTML(label)}</span><span class="num"></span><span class="num"></span><span class="num">${totValStr}</span><span class="num">${totCostStr}</span><span class="num">${totPlStr}</span><span class="num">${totPlPctStr}</span>
+            </div>`;
         }
 
         /** Merge identical Yahoo symbols (or same CSV id) for % of portfolio + heat map. */
@@ -4695,18 +5482,35 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 for (const r of g.rows) {
                     const qty = r.quantity != null && Number.isFinite(Number(r.quantity)) ? Number(r.quantity) : 0;
                     sumQty += qty;
-                    const qk = getExternalRowQuoteKey(panel, r);
-                    const q = qk ? quoteCache[qk] : null;
-                    const v = q ? resolveQuoteView(q, { extendedHours: false }) : null;
-                    const price = v && Number.isFinite(v.price) ? v.price : null;
-                    if (price != null && qty) sumVal += qty * price;
+                    let lineVal = 0;
+                    if (externalRowUsesCsvMarketValue(panel, r)) {
+                        const cv = externalCsvMarketValueDollars(r);
+                        if (cv != null && Number.isFinite(cv)) lineVal = cv;
+                    } else {
+                        const qk = getExternalRowQuoteKey(panel, r);
+                        const q = qk ? quoteCache[qk] : null;
+                        const v = q ? resolveQuoteView(q, { extendedHours: false }) : null;
+                        const price = v && Number.isFinite(v.price) ? v.price : null;
+                        if (price != null && qty) {
+                            const usd = externalRowValueUsdFromQuote(panel, r, qk, price, qty);
+                            if (usd != null && Number.isFinite(usd)) lineVal = usd;
+                        }
+                    }
+                    sumVal += lineVal;
                     const cb = effectiveCostBasis(panel, r);
                     if (cb != null && Number.isFinite(cb)) {
                         sumCost += cb;
                         costLines++;
                     }
                 }
-                const quoteKey = getExternalRowQuoteKey(panel, g.rows[0]);
+                let quoteKey = null;
+                for (const r of g.rows) {
+                    const qkr = getExternalRowQuoteKey(panel, r);
+                    if (qkr) {
+                        quoteKey = qkr;
+                        break;
+                    }
+                }
                 const q = quoteKey ? quoteCache[quoteKey] : null;
                 const chPct = q && Number.isFinite(q.changePercent) ? q.changePercent : null;
                 groups.push({
@@ -4737,12 +5541,22 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
             const { groups } = externalAggregatedGroups(panel, detail);
             const items = groups
-                .filter(g => g.quoteKey)
-                .map(g => ({
-                    sym: g.quoteKey,
-                    changePercent: g.changePercent,
-                    weight: Math.max(Number(g.aggValue) || 0, 1e-6),
-                }));
+                .filter(g => g.quoteKey || (Number(g.aggValue) > 0 && g.rows.some(r => externalRowUsesCsvMarketValue(panel, r))))
+                .map(g => {
+                    const mk = g.mergeKey || '';
+                    const m = mk.match(/^q:([^|]+)\|c:(.+)$/);
+                    let sym = g.quoteKey || truncate(String(g.rows[0]?.symbol || '—'), 14);
+                    if (m && g.quoteKey) {
+                        sym = `${m[1]} (${truncate(m[2], 11)})`;
+                    }
+                    return {
+                        mergeKey: mk || sym,
+                        sym,
+                        changePercent: g.changePercent,
+                        weight: Math.max(Number(g.aggValue) || 0, 1e-6),
+                        drillSym: g.quoteKey || null,
+                    };
+                });
             if (!items.length) {
                 return `<div class="no-data">No quotable symbols — switch to <strong>ENTERED</strong> and map <strong>SYM</strong> for each line.</div>`;
             }
@@ -4752,7 +5566,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             const W = 560, H = 320;
             const headerH = 14;
             const inner = { x: 0, y: headerH, w: W, h: H - headerH };
-            const treemapItems = capped.map(it => ({ key: it.sym, weight: it.weight, ref: it }));
+            const treemapItems = capped.map(it => ({ key: it.mergeKey || it.sym, weight: it.weight, ref: it }));
             const tiles = squarifiedTreemap(treemapItems, inner);
             let tilesHTML = `<div class="hm-sector-hdr" style="left:0;top:0;width:${W}px;height:${headerH}px;">PORTFOLIO (by value)</div>`;
             for (const t of tiles) {
@@ -4762,7 +5576,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     : `${it.changePercent > 0 ? '+' : ''}${it.changePercent.toFixed(2)}%`;
                 const showPct = t.rect.w > 48 && t.rect.h > 28;
                 const style = `left:${t.rect.x}px;top:${t.rect.y}px;width:${t.rect.w}px;height:${t.rect.h}px;background:${bg};`;
-                tilesHTML += `<div class="hm-tile" style="${style}" title="${escapeAttr(it.sym)} ${pct}" onclick="openDrilldown('${escapeAttr(it.sym)}')">
+                const tileClick = it.drillSym ? `onclick="openDrilldown('${escapeAttr(it.drillSym)}')"` : '';
+                tilesHTML += `<div class="hm-tile" style="${style}" title="${escapeAttr(it.sym)} ${pct}" ${tileClick}>
                         <span class="hm-sym">${escapeHTML(it.sym)}</span>
                         ${showPct ? `<span class="hm-pct">${pct}</span>` : ''}
                     </div>`;
@@ -4772,30 +5587,34 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
         /** EXTERNAL ACCOUNT — holdings for selected Fidelity CSV account (live Yahoo quotes only; SYM click = map ticker). */
         function renderExternalAccountHoldings(panel, pid) {
-            const imp = panel.externalImport;
             const acct = panel.externalSelectedAccount;
-            if (!imp?.rows?.length) {
-                return `<div class="no-data">Use <strong>LOAD CSV</strong> in the tray — Fidelity → Positions → Download <code style="font-size:10px;color:var(--text-secondary);">Portfolio_Positions*.csv</code>.</div>`;
+            const subsetNames = externalPanelSubsetAccountNames(panel);
+            const isSubset = !!subsetNames;
+            if (!externalPanelHasRows(panel)) {
+                return `<div class="no-data">Use <strong>ADD CSV</strong> in the tray — Fidelity → Positions → Download <code style="font-size:10px;color:var(--text-secondary);">Portfolio_Positions*.csv</code>.</div>`;
             }
             const names = getExternalAccountNamesForPanel(panel);
-            if (!acct || !names.includes(acct)) {
+            if (!acct || (!names.includes(acct) && !isSubset)) {
                 return `<div class="no-data">Select an <strong>ACCOUNT</strong> in the tray.</div>`;
             }
             const isTotals = acct === EXTERNAL_ACCOUNT_TOTALS_ID;
+            const isTotalsLike = isTotals || isSubset;
             const detailRaw = externalRowsDetailForView(panel);
             if (!detailRaw.length) {
                 return isTotals
-                    ? `<div class="no-data"><strong>TOTALS!</strong> has no rows — every account may be hidden, or the CSV has no positions. Use <strong>FILE [×]</strong> to clear, or show accounts by loading a CSV that still lists them.</div>`
-                    : `<div class="no-data">No rows for this account in the CSV.</div>`;
+                    ? `<div class="no-data"><strong>TOTALS!</strong> has no rows — every account may be hidden, or there are no positions. Remove a file with its <strong>[×]</strong>, use <strong>CLEAR ALL</strong>, or show accounts by loading a CSV that still lists them.</div>`
+                    : isSubset
+                        ? `<div class="no-data">No rows for the <strong>combined accounts</strong> you selected (every account may be hidden, or there are no positions).</div>`
+                        : `<div class="no-data">No rows for this account in the CSV.</div>`;
             }
             const usePortSort = !!(panel.sort && panel.sort.key === 'portfolioPct');
+            const useDailyPl = getExternalPlDisplayMode(panel) === 'daily';
             const editCsvKey = panel._externalSymEditCsvKey;
             const editCostKey = panel._externalCostEditKey;
-            let sumValue = 0;
-            let sumPlD = 0;
-            let sumCost = 0;
-            let hadAnyPl = false;
-            let hadAnyCost = false;
+            const grand = {
+                sumValue: 0, sumPlD: 0, sumCost: 0, hadAnyPl: false, hadAnyCost: false,
+                sumDayD: 0, sumDayPrevMv: 0, hadAnyDayD: false,
+            };
 
             let viewList;
             if (usePortSort) {
@@ -4819,29 +5638,36 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         const kb = (getExternalRowQuoteKey(panel, b.r) || b.r.symbol || '').toUpperCase();
                         const c = ka.localeCompare(kb) * inv;
                         if (c) return c;
-                        if (isTotals) return (a.r.accountName || '').localeCompare(b.r.accountName || '');
+                        if (isTotalsLike) return (a.r.accountName || '').localeCompare(b.r.accountName || '');
                         return a.idx - b.idx;
                     });
                 } else {
                     rowsWithIdx.sort((a, b) => {
                         if (a.idx !== b.idx) return a.idx - b.idx;
-                        if (isTotals) return (a.r.accountName || '').localeCompare(b.r.accountName || '');
+                        if (isTotalsLike) return (a.r.accountName || '').localeCompare(b.r.accountName || '');
                         return 0;
                     });
                 }
                 viewList = rowsWithIdx.map(x => ({ kind: 'd', r: x.r, idx: x.idx }));
             }
 
-            const tableWrapCls = 'external-holdings-table' + (usePortSort ? ' external-holdings-table--portpct' : '');
+            const tableWrapCls = 'external-holdings-table'
+                + (usePortSort ? ' external-holdings-table--portpct' : '')
+                + (isRefreshing ? ' external-holdings-table--refresh-pass' : '');
+            const hdrPl2 = useDailyPl
+                ? '<span class="num">DAY $</span><span class="num">DAY %</span>'
+                : '<span class="num">P/L $</span><span class="num">P/L %</span>';
             const hdr = usePortSort
                 ? `<div class="external-holdings-hdr">
-                <span>SYM</span><span class="num">QTY</span><span class="num">PRICE</span><span class="num">VALUE</span><span class="num">%PORT</span><span class="num">COST</span><span class="num">P/L $</span><span class="num">P/L %</span>
+                <span>SYM</span><span class="num">QTY</span><span class="num">PRICE</span><span class="num">VALUE</span><span class="num">%PORT</span><span class="num">COST</span>${hdrPl2}
             </div>`
                 : `<div class="external-holdings-hdr">
-                <span>SYM</span><span class="num">QTY</span><span class="num">PRICE</span><span class="num">VALUE</span><span class="num">COST</span><span class="num">P/L $</span><span class="num">P/L %</span>
+                <span>SYM</span><span class="num">QTY</span><span class="num">PRICE</span><span class="num">VALUE</span><span class="num">COST</span>${hdrPl2}
             </div>`;
 
-            const body = viewList.map((item) => {
+            // Pending Yahoo quote: show loading… in PRICE column only; VALUE / %PORT / P/L use — until numbers exist.
+            const extQuoteLoadingHtml = '<span style="color:var(--text-dim);">loading…</span>';
+            const rowHtml = (item, bumps) => {
                 if (item.kind === 'g') {
                     const g = item.g;
                     const r0 = g.rows[0];
@@ -4852,7 +5678,6 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     const priceOne = v && Number.isFinite(v.price) ? v.price : null;
                     const qtyAgg = g.quantity;
                     const value = Number.isFinite(g.aggValue) ? g.aggValue : null;
-                    if (value != null && Number.isFinite(value)) sumValue += value;
                     const costBasis = g.aggCost != null && Number.isFinite(g.aggCost) ? g.aggCost : null;
                     let plD = null;
                     let plPct = null;
@@ -4861,20 +5686,26 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         plD = value - costBasis;
                         plPct = costBasis !== 0 ? (plD / costBasis) * 100 : null;
                         plCls = plD > 0 ? 'positive' : plD < 0 ? 'negative' : 'neutral';
-                        if (plD != null && Number.isFinite(plD)) {
-                            sumPlD += plD;
-                            hadAnyPl = true;
+                    }
+                    const gDaily = useDailyPl ? externalGroupDailyPlFromRows(panel, g) : null;
+                    if (useDailyPl) {
+                        if (gDaily && gDaily.dayD != null && Number.isFinite(gDaily.dayD)) {
+                            plCls = gDaily.dayD > 0 ? 'positive' : gDaily.dayD < 0 ? 'negative' : 'neutral';
+                        } else {
+                            plCls = 'neutral';
                         }
                     }
-                    if (costBasis != null && Number.isFinite(costBasis)) {
-                        sumCost += costBasis;
-                        hadAnyCost = true;
+                    for (const s of bumps) externalHoldingsBumpSums(s, value, costBasis, useDailyPl ? null : plD);
+                    if (useDailyPl && gDaily && gDaily.dayD != null && Number.isFinite(gDaily.dayD)) {
+                        for (const s of bumps) externalHoldingsBumpDaily(s, gDaily.dayD, gDaily.prevMvUsd);
                     }
+                    const groupAnyYahooValue = g.rows.some((r) => !externalRowUsesCsvMarketValue(panel, r));
+                    const yahooRowPendingG = !!(groupAnyYahooValue && qk && !q);
                     let priceStr = '—';
-                    if (qk && !q) priceStr = '<span style="color:var(--text-dim);">loading…</span>';
+                    if (yahooRowPendingG) priceStr = extQuoteLoadingHtml;
                     else if (g.wavgPrice != null && Number.isFinite(g.wavgPrice)) priceStr = formatExternalUsdPrice2(g.wavgPrice);
                     else if (priceOne != null && qtyAgg) priceStr = formatExternalUsdPrice2(priceOne);
-                    const qtyStr = qtyAgg ? (Number.isInteger(qtyAgg) ? String(qtyAgg) : String(qtyAgg)) : '—';
+                    const qtyStr = qtyAgg ? formatExternalQty(qtyAgg) : '—';
                     const valStr = value != null ? formatExternalUsdWhole(value) : '—';
                     const portStr = g.portfolioPct != null ? `${Math.round(g.portfolioPct)}%` : '—';
                     let costCell = '';
@@ -4898,13 +5729,17 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                             costCell = `<span class="num">${costStr}</span>`;
                         }
                     }
-                    const plStr = plD != null ? formatExternalUsdPlSigned(plD) : '—';
-                    const plPStr = plPct != null ? ((plPct > 0 ? '+' : '') + Math.round(plPct) + '%') : '—';
+                    const plStr = useDailyPl && gDaily
+                        ? (gDaily.dayD != null ? formatExternalUsdPlSigned(gDaily.dayD) : '—')
+                        : (plD != null ? formatExternalUsdPlSigned(plD) : '—');
+                    const plPStr = useDailyPl && gDaily
+                        ? externalFormatDayPlPct(gDaily.dayPct)
+                        : (plPct != null ? ((plPct > 0 ? '+' : '') + Math.round(plPct) + '%') : '—');
                     const staleCls = q && q.stale ? ' stale' : '';
                     const ov0 = csvKey0 && panel.externalSymbolOverrides && panel.externalSymbolOverrides[csvKey0];
                     let symLabel0 = ov0 ? `${escapeHTML(String(ov0))}<span class="name"> ←${escapeHTML(r0.symbol)}</span>` : escapeHTML(r0.symbol);
                     if (g.multi) symLabel0 += `<span class="name"> (${g.rows.length} lines)</span>`;
-                    else if (isTotals && r0.accountName) {
+                    else if (isTotalsLike && r0.accountName) {
                         symLabel0 += `<span class="name"> · ${escapeHTML(truncate(r0.accountName, 22))}</span>`;
                     }
                     const csvKeyEnc0 = encodeURIComponent(csvKey0 || '_');
@@ -4936,41 +5771,63 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 }
                 const r = item.r;
                 const csvKey = externalOverrideKeyFromRow(r);
+                const csvStatic = externalRowUsesCsvMarketValue(panel, r);
+                const csvVal = csvStatic ? externalCsvMarketValueDollars(r) : null;
                 const qk = getExternalRowQuoteKey(panel, r);
                 const q = qk ? quoteCache[qk] : null;
                 const v = q ? resolveQuoteView(q, { extendedHours: false }) : null;
-                const price = v && Number.isFinite(v.price) ? v.price : null;
+                const priceYahoo = v && Number.isFinite(v.price) ? v.price : null;
                 const qty = r.quantity;
-                const value = (qty != null && price != null) ? qty * price : null;
-                if (value != null && Number.isFinite(value)) sumValue += value;
-
+                let price = null;
+                let value = null;
+                if (csvStatic) {
+                    value = csvVal;
+                    const qn = qty != null && Number.isFinite(Number(qty)) ? Number(qty) : null;
+                    price = (qn != null && qn !== 0 && csvVal != null && Number.isFinite(csvVal)) ? csvVal / qn : null;
+                } else {
+                    price = priceYahoo;
+                    const qn = qty != null && Number.isFinite(Number(qty)) ? Number(qty) : null;
+                    value = (qn != null && price != null && qk)
+                        ? externalRowValueUsdFromQuote(panel, r, qk, price, qn)
+                        : null;
+                }
                 const costBasis = effectiveCostBasis(panel, r);
                 let plD = null;
                 let plPct = null;
                 let plCls = 'neutral';
-                if (qty != null && price != null && costBasis != null) {
-                    const mv = qty * price;
-                    plD = mv - costBasis;
+                const qnPl = qty != null && Number.isFinite(Number(qty)) ? Number(qty) : null;
+                const mvForPl = value != null && Number.isFinite(value)
+                    ? value
+                    : (qnPl != null && price != null && qk
+                        ? externalRowValueUsdFromQuote(panel, r, qk, price, qnPl)
+                        : (qnPl != null && price != null ? qnPl * price : null));
+                if (mvForPl != null && costBasis != null) {
+                    plD = mvForPl - costBasis;
                     plPct = costBasis !== 0 ? (plD / costBasis) * 100 : null;
                     plCls = plD > 0 ? 'positive' : plD < 0 ? 'negative' : 'neutral';
-                    if (plD != null && Number.isFinite(plD)) {
-                        sumPlD += plD;
-                        hadAnyPl = true;
+                }
+                const dMet = useDailyPl ? externalRowDailyPlFromDetail(panel, r, value) : null;
+                if (useDailyPl) {
+                    if (dMet && dMet.dayD != null && Number.isFinite(dMet.dayD)) {
+                        plCls = dMet.dayD > 0 ? 'positive' : dMet.dayD < 0 ? 'negative' : 'neutral';
+                    } else {
+                        plCls = 'neutral';
                     }
                 }
-                if (costBasis != null && Number.isFinite(costBasis)) {
-                    sumCost += costBasis;
-                    hadAnyCost = true;
+                for (const s of bumps) externalHoldingsBumpSums(s, value, costBasis, useDailyPl ? null : plD);
+                if (useDailyPl && dMet && dMet.dayD != null && Number.isFinite(dMet.dayD)) {
+                    for (const s of bumps) externalHoldingsBumpDaily(s, dMet.dayD, dMet.prevMvUsd);
                 }
+                const yahooRowPending = !csvStatic && qk && !q;
                 let priceStr = '—';
-                if (qk && !q) priceStr = '<span style="color:var(--text-dim);">loading…</span>';
+                if (yahooRowPending) priceStr = extQuoteLoadingHtml;
                 else if (price != null) priceStr = formatExternalUsdPrice2(price);
 
                 let qtyStr = '—';
                 if (qty != null) {
-                    qtyStr = Number.isInteger(qty) ? String(qty) : String(qty);
+                    qtyStr = formatExternalQty(qty);
                 }
-                const valStr = value != null ? formatExternalUsdWhole(value) : '—';
+                const valStr = value != null && Number.isFinite(value) ? formatExternalUsdWhole(value) : '—';
                 const costKey = externalCostBasisOverrideKey(panel, r);
                 const costKeyEnc = encodeURIComponent(costKey || '_');
                 let costStr = '—';
@@ -4990,12 +5847,16 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 } else {
                     costCell = `<span class="num">${costStr}</span>`;
                 }
-                const plStr = plD != null ? formatExternalUsdPlSigned(plD) : '—';
-                const plPStr = plPct != null ? ((plPct > 0 ? '+' : '') + Math.round(plPct) + '%') : '—';
+                const plStr = useDailyPl && dMet
+                    ? (dMet.dayD != null ? formatExternalUsdPlSigned(dMet.dayD) : '—')
+                    : (plD != null ? formatExternalUsdPlSigned(plD) : '—');
+                const plPStr = useDailyPl && dMet
+                    ? externalFormatDayPlPct(dMet.dayPct)
+                    : (plPct != null ? ((plPct > 0 ? '+' : '') + Math.round(plPct) + '%') : '—');
                 const staleCls = q && q.stale ? ' stale' : '';
                 const ov = csvKey && panel.externalSymbolOverrides && panel.externalSymbolOverrides[csvKey];
                 let symLabel = ov ? `${escapeHTML(String(ov))}<span class="name"> ←${escapeHTML(r.symbol)}</span>` : escapeHTML(r.symbol);
-                if (isTotals && r.accountName) {
+                if (isTotalsLike && r.accountName) {
                     symLabel += `<span class="name"> · ${escapeHTML(truncate(r.accountName, 22))}</span>`;
                 }
                 const csvKeyEnc = encodeURIComponent(csvKey || '_');
@@ -5021,17 +5882,42 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     <span class="num ${plCls}">${plStr}</span>
                     <span class="num ${plCls}">${plPStr}</span>
                 </div>`;
-            }).join('');
-            const totValStr = viewList.length ? formatExternalUsdWhole(sumValue) : '—';
-            const totCostStr = hadAnyCost ? formatExternalUsdWhole(sumCost) : '—';
-            const totPlStr = hadAnyPl ? formatExternalUsdPlSigned(sumPlD) : '—';
-            const totPortStr = usePortSort ? (sumValue > 0 ? '100%' : '—') : '';
+            };
+            let body;
+            if (!isTotalsLike) {
+                body = viewList.map((item) => rowHtml(item, [grand])).join('');
+            } else {
+                const { sec, cash } = partitionTotalsSecuritiesAndCash(panel, viewList);
+                const sumZ = () => ({
+                    sumValue: 0, sumPlD: 0, sumCost: 0, hadAnyPl: false, hadAnyCost: false,
+                    sumDayD: 0, sumDayPrevMv: 0, hadAnyDayD: false,
+                });
+                const secSums = sumZ();
+                const cashSums = sumZ();
+                const parts = ['<div class="external-holdings-section">SECURITIES</div>'];
+                sec.forEach((item) => parts.push(rowHtml(item, [grand, secSums])));
+                parts.push(externalHoldingsSubtotalHtml('SUBTOTAL · SECURITIES', secSums, usePortSort, useDailyPl));
+                parts.push('<div class="external-holdings-section">CASH · SWEEP / MM</div>');
+                cash.forEach((item) => parts.push(rowHtml(item, [grand, cashSums])));
+                parts.push(externalHoldingsSubtotalHtml('SUBTOTAL · CASH', cashSums, usePortSort, useDailyPl));
+                body = parts.join('');
+            }
+            const totValStr = viewList.length ? formatExternalUsdWhole(grand.sumValue) : '—';
+            const totCostStr = grand.hadAnyCost ? formatExternalUsdWhole(grand.sumCost) : '—';
+            const totPlStr = useDailyPl
+                ? (grand.hadAnyDayD ? formatExternalUsdPlSigned(grand.sumDayD) : '—')
+                : (grand.hadAnyPl ? formatExternalUsdPlSigned(grand.sumPlD) : '—');
+            const aggFootDayPct = grand.sumDayPrevMv !== 0 && grand.hadAnyDayD
+                ? (grand.sumDayD / grand.sumDayPrevMv) * 100
+                : null;
+            const totPlPctStr = useDailyPl ? externalFormatDayPlPct(aggFootDayPct) : '—';
+            const totPortStr = usePortSort ? (grand.sumValue > 0 ? '100%' : '—') : '';
             const footer = usePortSort
                 ? `<div class="external-holdings-total">
-                <span>TOTAL</span><span class="num"></span><span class="num"></span><span class="num">${totValStr}</span><span class="num">${totPortStr}</span><span class="num">${totCostStr}</span><span class="num">${totPlStr}</span><span class="num">—</span>
+                <span>TOTAL</span><span class="num"></span><span class="num"></span><span class="num">${totValStr}</span><span class="num">${totPortStr}</span><span class="num">${totCostStr}</span><span class="num">${totPlStr}</span><span class="num">${totPlPctStr}</span>
             </div>`
                 : `<div class="external-holdings-total">
-                <span>TOTAL</span><span class="num"></span><span class="num"></span><span class="num">${totValStr}</span><span class="num">${totCostStr}</span><span class="num">${totPlStr}</span><span class="num">—</span>
+                <span>TOTAL</span><span class="num"></span><span class="num"></span><span class="num">${totValStr}</span><span class="num">${totCostStr}</span><span class="num">${totPlStr}</span><span class="num">${totPlPctStr}</span>
             </div>`;
             return `<div class="${tableWrapCls}">${hdr}${body}${footer}</div>`;
         }
@@ -5160,10 +6046,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
             if (panel.type === 'eonet') {
                 const events = panel._eonetEvents;
-                const fk = panel.eonetFilter || 'wildfires';
                 if (!Array.isArray(events)) return [];
                 const filtered = events
-                    .filter(e => eonetEventPassesFilter(e, fk) && e.lat != null && e.lon != null)
+                    .filter((e) => eonetEventMatchesPanelFilters(e, panel) && e.lat != null && e.lon != null)
                     .slice(0, 120);
                 // Dot radius on globe: normalize displayScore within each hazard type in this view.
                 const byCat = {};
@@ -5549,18 +6434,19 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 return renderGeoGlobeShell(pid);
             }
             const events = panel._eonetEvents;
-            const fk = panel.eonetFilter || 'wildfires';
+            const eonetKeys = getEonetActiveFilterKeys(panel);
             if (events == null) {
                 return panel._eonetFailed
                     ? `<div class="error-message">NASA EONET FEED UNAVAILABLE — [R] to retry.</div>`
                     : `<div class="loading">LOADING EARTH EVENTS…</div>`;
             }
-            const filtered = events.filter(e => eonetEventPassesFilter(e, fk)).slice(0, 80);
+            const filtered = events.filter((e) => eonetEventMatchesPanelFilters(e, panel)).slice(0, 80);
             const mergeHint = panel._eonetPartial
                 ? `<div class="eonet-merge-hint" role="status">NASA full multi-category feed still loading in the background…</div>`
                 : '';
             if (!filtered.length) {
-                const waitingBroader = panel._eonetPartial && (fk === 'all' || fk !== panel._eonetPartialCategory);
+                const waitingBroader = panel._eonetPartial
+                    && (eonetKeys.includes('all') || eonetKeys.some((k) => k !== panel._eonetPartialCategory));
                 if (waitingBroader) {
                     void scheduleEonetFullMerge();
                     return mergeHint + `<div class="loading">LOADING EARTH EVENTS…</div>`;
@@ -5873,33 +6759,22 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             if (oldType === 'eonet') {
                 panel.memory.eonet = { ...panel.memory.eonet };
                 if (panel.eonetFilter) panel.memory.eonet.eonetFilter = panel.eonetFilter;
+                const fkArr = getEonetActiveFilterKeys(panel);
+                if (fkArr.length > 1) panel.memory.eonet.eonetFilters = fkArr;
+                else delete panel.memory.eonet.eonetFilters;
                 if (panel.display === 'globe') panel.memory.eonet.display = 'globe';
                 else delete panel.memory.eonet.display;
             }
             // EXTERNAL ACCOUNT — stash Fidelity CSV snapshot when leaving this type (restore on return).
             if (oldType === 'externalAccount') {
-                panel.memory.externalAccount = {};
-                if (panel.externalImport) {
-                    panel.memory.externalAccount.externalImport = panel.externalImport;
-                    panel.memory.externalAccount.externalSelectedAccount = panel.externalSelectedAccount ?? null;
-                    panel.memory.externalAccount.externalSymbolOverrides = panel.externalSymbolOverrides && typeof panel.externalSymbolOverrides === 'object'
-                        ? { ...panel.externalSymbolOverrides }
-                        : {};
-                    if (Array.isArray(panel.externalHiddenAccounts)) {
-                        panel.memory.externalAccount.externalHiddenAccounts = [...panel.externalHiddenAccounts];
-                    }
-                    if (panel.externalCostBasisOverrides && typeof panel.externalCostBasisOverrides === 'object') {
-                        panel.memory.externalAccount.externalCostBasisOverrides = { ...panel.externalCostBasisOverrides };
-                    }
-                    if (panel.sort && panel.sort.key) {
-                        panel.memory.externalAccount.externalSort = { ...panel.sort };
-                    }
-                    if (panel.display === 'heatmap') {
-                        panel.memory.externalAccount.externalDisplay = 'heatmap';
-                    }
-                }
+                ensureExternalBundles(panel);
+                panel.memory.externalAccount = externalPanelHasRows(panel)
+                    ? buildExternalAccountMemorySnapshot(panel)
+                    : {};
+                delete panel.externalSources;
                 delete panel.externalImport;
                 delete panel.externalSelectedAccount;
+                delete panel.externalCombinedAccounts;
                 delete panel.externalSymbolOverrides;
                 delete panel.externalHiddenAccounts;
                 delete panel.externalCostBasisOverrides;
@@ -5967,9 +6842,18 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     ? mem.eonetFilter
                     : 'wildfires';
                 panel.eonetFilter = def;
+                const mf = mem?.eonetFilters;
+                if (Array.isArray(mf) && mf.length > 1) {
+                    const ok = mf.filter((k) => EONET_FILTER_CHIPS.some((c) => c.key === k));
+                    if (ok.length > 1) {
+                        panel.eonetFilters = [...new Set(ok)];
+                        panel.eonetFilter = panel.eonetFilters[0];
+                    } else delete panel.eonetFilters;
+                } else delete panel.eonetFilters;
                 if (mem?.display === 'globe') panel.display = 'globe';
             } else {
                 delete panel.eonetFilter;
+                delete panel.eonetFilters;
             }
             if (newType === 'calendar') {
                 const mem = panel.memory.calendar;
@@ -5980,22 +6864,53 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
             if (newType === 'externalAccount') {
                 const mem = panel.memory.externalAccount;
-                if (mem?.externalImport?.rows?.length) {
+                if (mem?.externalSources?.length) {
+                    panel.externalSources = mem.externalSources.map(s => ({
+                        id: s.id,
+                        fileName: s.fileName,
+                        importedAt: s.importedAt || Date.now(),
+                        rows: (s.rows || []).map(row => ({ ...row })),
+                    }));
+                    delete panel.externalImport;
+                } else if (mem?.externalImport?.rows?.length) {
+                    // Legacy stash from before multi-file — normalize to externalSources.
                     panel.externalImport = mem.externalImport;
-                    panel.externalSymbolOverrides = mem.externalSymbolOverrides && typeof mem.externalSymbolOverrides === 'object'
+                    ensureExternalBundles(panel);
+                }
+                if (externalPanelHasRows(panel)) {
+                    panel.memory.externalAccount = panel.memory.externalAccount || {};
+                    if (mem?.restrictedLotPrefs && typeof mem.restrictedLotPrefs === 'object') {
+                        panel.memory.externalAccount.restrictedLotPrefs = { ...mem.restrictedLotPrefs };
+                    } else if (!panel.memory.externalAccount.restrictedLotPrefs) {
+                        panel.memory.externalAccount.restrictedLotPrefs = {};
+                    }
+                    panel.externalSymbolOverrides = mem?.externalSymbolOverrides && typeof mem.externalSymbolOverrides === 'object'
                         ? { ...mem.externalSymbolOverrides }
                         : {};
                     migrateLegacyExternalSymbolOverrideKeys(panel);
-                    const allAcct = new Set(getExternalAccountNamesFromImport(panel.externalImport));
-                    panel.externalHiddenAccounts = Array.isArray(mem.externalHiddenAccounts)
+                    const allAcct = new Set(getExternalAccountNamesFromImport(panel));
+                    panel.externalHiddenAccounts = Array.isArray(mem?.externalHiddenAccounts)
                         ? mem.externalHiddenAccounts.filter(n => n && allAcct.has(n))
                         : [];
-                    panel.externalCostBasisOverrides = mem.externalCostBasisOverrides && typeof mem.externalCostBasisOverrides === 'object'
+                    panel.externalCostBasisOverrides = mem?.externalCostBasisOverrides && typeof mem.externalCostBasisOverrides === 'object'
                         ? { ...mem.externalCostBasisOverrides }
                         : {};
-                    const vis = getExternalAccountNamesForPanel(panel);
-                    const sel = mem.externalSelectedAccount;
-                    panel.externalSelectedAccount = vis.includes(sel) ? sel : (vis[0] || null);
+                    externalRehydrateRestrictedLotPrefsToLive(panel);
+                    migrateLegacyExternalCostBasisForRestricted(panel);
+                    const comb = Array.isArray(mem?.externalCombinedAccounts)
+                        ? mem.externalCombinedAccounts.filter((n) => typeof n === 'string' && n)
+                        : null;
+                    if (comb && comb.length >= 2) {
+                        panel.externalCombinedAccounts = comb;
+                        panel.externalSelectedAccount = EXTERNAL_ACCOUNT_SUBSET_ID;
+                    } else {
+                        delete panel.externalCombinedAccounts;
+                        const vis = getExternalAccountNamesForPanel(panel);
+                        const sel = mem?.externalSelectedAccount;
+                        panel.externalSelectedAccount = vis.includes(sel) ? sel : (vis[0] || null);
+                    }
+                    externalNormalizeSelectionAfterAccountListChange(panel);
+                    if (mem?.plDisplayMode === 'daily') panel.memory.externalAccount.plDisplayMode = 'daily';
                 }
                 if (mem?.externalSort && mem.externalSort.key) {
                     panel.sort = { key: mem.externalSort.key, dir: mem.externalSort.dir || 'asc' };
@@ -6058,16 +6973,64 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             renderAllPanels();
         }
 
-        function setEonetFilter(pid, filterKey) {
+        let extEonetChipPress = { timer: null, consumed: false };
+
+        function eonetChipPointerDown(ev, pid, filterKey) {
+            if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+            extEonetChipPress.consumed = false;
+            clearTimeout(extEonetChipPress.timer);
+            extEonetChipPress.timer = setTimeout(() => {
+                extEonetChipPress.timer = null;
+                extEonetChipPress.consumed = true;
+                setEonetFilter({ shiftKey: true }, pid, filterKey);
+            }, 520);
+        }
+
+        function eonetChipPointerUp() {
+            clearTimeout(extEonetChipPress.timer);
+            extEonetChipPress.timer = null;
+        }
+
+        function eonetChipClick(ev, pid, filterKey) {
+            if (extEonetChipPress.consumed) {
+                extEonetChipPress.consumed = false;
+                return;
+            }
+            setEonetFilter(ev, pid, filterKey);
+        }
+
+        function setEonetFilter(ev, pid, filterKey) {
             const panel = state.panels[pid];
             if (!panel || panel.type !== 'eonet') return;
-            if (!EONET_FILTER_CHIPS.some(c => c.key === filterKey)) return;
-            if (panel.eonetFilter === filterKey) return;
-            panel.eonetFilter = filterKey;
+            if (!EONET_FILTER_CHIPS.some((c) => c.key === filterKey)) return;
+            const prevKeys = getEonetActiveFilterKeys(panel);
+            const mult = !!(ev && (ev.shiftKey === true || ev.metaKey === true));
+            if (!mult && prevKeys.length === 1 && prevKeys[0] === filterKey) return;
+            let nextKeys;
+            if (!mult) {
+                nextKeys = [filterKey];
+            } else if (filterKey === 'all') {
+                nextKeys = ['all'];
+            } else {
+                let cur = prevKeys.filter((k) => k !== 'all');
+                if (prevKeys.includes('all')) cur = [];
+                if (cur.includes(filterKey)) cur = cur.filter((k) => k !== filterKey);
+                else cur.push(filterKey);
+                if (!cur.length) cur = ['wildfires'];
+                nextKeys = [...new Set(cur)];
+            }
+            const same = nextKeys.length === prevKeys.length && nextKeys.every((k) => prevKeys.includes(k));
+            if (same) return;
+            if (nextKeys.length === 1) {
+                delete panel.eonetFilters;
+                panel.eonetFilter = nextKeys[0];
+            } else {
+                panel.eonetFilters = nextKeys;
+                panel.eonetFilter = nextKeys[0];
+            }
             saveState();
             renderAllPanels();
-            // Until the full feed arrives, chip data may be category-only — pull all hazards when ALL/other chip needs them.
-            if (panel._eonetPartial && (filterKey === 'all' || filterKey !== panel._eonetPartialCategory)) {
+            if (panel._eonetPartial && (nextKeys.includes('all') || nextKeys.some((k) => k !== panel._eonetPartialCategory))) {
                 void scheduleEonetFullMerge();
             }
         }
@@ -6116,6 +7079,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     if (next.key) panel.memory.externalAccount.externalSort = { ...next };
                     else delete panel.memory.externalAccount.externalSort;
                     delete panel.memory.externalAccount.externalDisplay;
+                    // plDisplayMode (TOTAL vs DAILY columns) is independent of sort/heatmap — keep it.
                 }
                 saveState();
                 renderAllPanels();
@@ -6215,6 +7179,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
             quoteCache[sym] = { ...q, ts: Date.now(), stale: false };
             if (q.shortName) symbolNameCache[sym] = q.shortName;
+            scheduleQuoteCachePersist();
             panel.symbols.push(sym);
             saveState();
             rerenderPanelBody(pid);
@@ -6248,11 +7213,15 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
         function rerenderPanelBody(pid) {
             const content = document.getElementById(`content-${pid}`);
+            const panel = state.panels[pid];
             if (content) {
                 content.innerHTML = renderPanelContent(pid);
                 content.classList.remove('flash-update');
                 void content.offsetWidth;
-                content.classList.add('flash-update');
+                // EXTERNAL ACCOUNT: switching account / P/L cols keeps cached quotes — skip flash so values stay steady (not a full "reload" pulse).
+                if (panel && panel.type !== 'externalAccount') {
+                    content.classList.add('flash-update');
+                }
             }
             // If this is a stocks/indices panel, also update movers/sentiment panels since they derive
             for (const otherPid of state.layout) {
@@ -6354,7 +7323,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             if (f) void applyExternalAccountCsvFile(pid, f);
         }
 
-        /** Replace any prior CSV for this panel — one active Fidelity export at a time. */
+        /** Append one Fidelity export as a new bundle (multi-file); merges hidden accounts + symbol/cost overrides vs merged rows. */
         async function applyExternalAccountCsvFile(pid, file) {
             const p = state.panels[pid];
             if (!p || p.type !== 'externalAccount') return;
@@ -6378,13 +7347,20 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 ? { ...p.externalCostBasisOverrides }
                 : {};
             const prevHidden = Array.isArray(p.externalHiddenAccounts) ? [...p.externalHiddenAccounts] : [];
-            p.externalImport = { fileName: file.name, importedAt: Date.now(), rows: parsed.rows };
-            const names = parsed.accountNames.length
-                ? parsed.accountNames
-                : getExternalAccountNamesFromImport(p.externalImport);
-            const allAcctSet = new Set(names);
+            ensureExternalBundles(p);
+            externalRefreshRestrictedLotPrefsInMemory(p);
+            const bundle = {
+                id: `ext-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                fileName: file.name,
+                importedAt: Date.now(),
+                rows: parsed.rows,
+            };
+            p.externalSources = [...(p.externalSources || []), bundle];
+            if (p.externalImport) delete p.externalImport;
+            const merged = getExternalMergedRows(p);
+            const allAcctSet = new Set(getExternalAccountNamesFromImport(p));
             p.externalHiddenAccounts = prevHidden.filter(n => n && allAcctSet.has(n));
-            const seenSyms = new Set(parsed.rows.map(r => externalOverrideKeyFromRow(r)).filter(Boolean));
+            const seenSyms = new Set(merged.map(r => externalOverrideKeyFromRow(r)).filter(Boolean));
             const nextOv = {};
             for (const [k, v] of Object.entries(prevOv)) {
                 if (!v || !String(v).trim()) continue;
@@ -6392,30 +7368,22 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
             p.externalSymbolOverrides = nextOv;
             migrateLegacyExternalSymbolOverrideKeys(p);
+            externalRehydrateRestrictedLotPrefsToLive(p);
+            migrateLegacyExternalCostBasisForRestricted(p);
             const keySet = collectExternalCostBasisKeysAcrossImport(p);
             const nextCost = {};
             for (const [k, v] of Object.entries(prevCost)) {
                 if (keySet.has(k) && Number.isFinite(v)) nextCost[k] = v;
             }
             p.externalCostBasisOverrides = nextCost;
-            const vis = getExternalAccountNamesForPanel(p);
-            const prevSel = p.externalSelectedAccount;
-            p.externalSelectedAccount = vis.includes(prevSel) ? prevSel : (vis[0] || null);
+            externalRefreshRestrictedLotPrefsInMemory(p);
+            externalNormalizeSelectionAfterAccountListChange(p);
             delete p._externalSymEditCsvKey;
             delete p._suppressNextExternalSymBlur;
             delete p._externalCostEditKey;
             delete p._suppressNextExternalCostBlur;
             p.memory = p.memory || {};
-            const extMem = {
-                externalImport: p.externalImport,
-                externalSelectedAccount: p.externalSelectedAccount,
-                externalSymbolOverrides: { ...p.externalSymbolOverrides },
-                externalHiddenAccounts: [...(p.externalHiddenAccounts || [])],
-                externalCostBasisOverrides: { ...p.externalCostBasisOverrides },
-            };
-            if (p.sort && p.sort.key) extMem.externalSort = { ...p.sort };
-            if (p.display === 'heatmap') extMem.externalDisplay = 'heatmap';
-            p.memory.externalAccount = extMem;
+            p.memory.externalAccount = buildExternalAccountMemorySnapshot(p);
             saveState();
             state.ui.openTray = pid;
             renderAllPanels();
@@ -6427,8 +7395,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         function clearExternalAccountImport(pid) {
             const p = state.panels[pid];
             if (!p || p.type !== 'externalAccount') return;
+            delete p.externalSources;
             delete p.externalImport;
             delete p.externalSelectedAccount;
+            delete p.externalCombinedAccounts;
             delete p.externalSymbolOverrides;
             delete p.externalHiddenAccounts;
             delete p.externalCostBasisOverrides;
@@ -6446,17 +7416,141 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             void refreshAll();
         }
 
-        function setExternalAccountSelection(pid, index) {
+        /** Remove one appended CSV bundle; re-prunes overrides. Clears the panel if that was the last file. */
+        function removeExternalAccountBundle(pid, bundleId) {
             const p = state.panels[pid];
-            if (!p || p.type !== 'externalAccount' || !p.externalImport?.rows) return;
+            if (!p || p.type !== 'externalAccount') return;
+            ensureExternalBundles(p);
+            externalRefreshRestrictedLotPrefsInMemory(p);
+            const id = String(bundleId || '');
+            p.externalSources = (p.externalSources || []).filter(s => s.id !== id);
+            const merged = getExternalMergedRows(p);
+            if (!merged.length) {
+                clearExternalAccountImport(pid);
+                return;
+            }
+            const seenSyms = new Set(merged.map(r => externalOverrideKeyFromRow(r)).filter(Boolean));
+            const prevOv = (p.externalSymbolOverrides && typeof p.externalSymbolOverrides === 'object')
+                ? { ...p.externalSymbolOverrides }
+                : {};
+            const nextOv = {};
+            for (const [k, v] of Object.entries(prevOv)) {
+                if (!v || !String(v).trim()) continue;
+                if (seenSyms.has(k)) nextOv[k] = String(v).trim();
+            }
+            p.externalSymbolOverrides = nextOv;
+            migrateLegacyExternalSymbolOverrideKeys(p);
+            externalRehydrateRestrictedLotPrefsToLive(p);
+            migrateLegacyExternalCostBasisForRestricted(p);
+            const keySet = collectExternalCostBasisKeysAcrossImport(p);
+            const prevCost = (p.externalCostBasisOverrides && typeof p.externalCostBasisOverrides === 'object')
+                ? { ...p.externalCostBasisOverrides }
+                : {};
+            const nextCost = {};
+            for (const [k, v] of Object.entries(prevCost)) {
+                if (keySet.has(k) && Number.isFinite(v)) nextCost[k] = v;
+            }
+            p.externalCostBasisOverrides = nextCost;
+            externalRefreshRestrictedLotPrefsInMemory(p);
+            const allAcct = new Set(getExternalAccountNamesFromImport(p));
+            p.externalHiddenAccounts = Array.isArray(p.externalHiddenAccounts)
+                ? p.externalHiddenAccounts.filter(n => n && allAcct.has(n))
+                : [];
+            externalNormalizeSelectionAfterAccountListChange(p);
+            delete p._externalSymEditCsvKey;
+            delete p._suppressNextExternalSymBlur;
+            delete p._externalCostEditKey;
+            delete p._suppressNextExternalCostBlur;
+            p.memory = p.memory || {};
+            p.memory.externalAccount = buildExternalAccountMemorySnapshot(p);
+            saveState();
+            state.ui.openTray = pid;
+            renderAllPanels();
+            document.getElementById(`panel-${pid}`)?.classList.add('tray-open');
+            void refreshAll();
+        }
+
+        let extAccChipPress = { timer: null, consumed: false };
+
+        function externalAccountChipPointerDown(ev, pid, index) {
+            if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+            extAccChipPress.consumed = false;
+            clearTimeout(extAccChipPress.timer);
+            extAccChipPress.timer = setTimeout(() => {
+                extAccChipPress.timer = null;
+                extAccChipPress.consumed = true;
+                setExternalAccountSelection({ shiftKey: true }, pid, index);
+            }, 520);
+        }
+
+        function externalAccountChipPointerUp() {
+            clearTimeout(extAccChipPress.timer);
+            extAccChipPress.timer = null;
+        }
+
+        function externalAccountChipClick(ev, pid, index) {
+            if (extAccChipPress.consumed) {
+                extAccChipPress.consumed = false;
+                return;
+            }
+            setExternalAccountSelection(ev, pid, index);
+        }
+
+        function setExternalAccountSelection(ev, pid, index) {
+            const p = state.panels[pid];
+            if (!p || p.type !== 'externalAccount' || !externalPanelHasRows(p)) return;
             const names = getExternalAccountNamesForPanel(p);
             const i = Number(index);
             if (!Number.isFinite(i) || i < 0 || i >= names.length) return;
-            const next = names[i];
-            if (p.externalSelectedAccount === next) return;
-            p.externalSelectedAccount = next;
-            if (p.memory?.externalAccount) {
-                p.memory.externalAccount.externalSelectedAccount = next;
+            const clicked = names[i];
+            const mult = !!(ev && (ev.shiftKey === true || ev.metaKey === true));
+
+            if (
+                clicked === EXTERNAL_ACCOUNT_TOTALS_ID
+                && p.externalSelectedAccount === EXTERNAL_ACCOUNT_TOTALS_ID
+                && !p.externalCombinedAccounts
+            ) {
+                return;
+            }
+            if (!mult && clicked !== EXTERNAL_ACCOUNT_TOTALS_ID && !p.externalCombinedAccounts && p.externalSelectedAccount === clicked) {
+                return;
+            }
+
+            if (clicked === EXTERNAL_ACCOUNT_TOTALS_ID) {
+                delete p.externalCombinedAccounts;
+                p.externalSelectedAccount = EXTERNAL_ACCOUNT_TOTALS_ID;
+            } else if (mult) {
+                const cur = new Set();
+                const existing = externalPanelSubsetAccountNames(p);
+                if (existing) existing.forEach((n) => cur.add(n));
+                else if (
+                    p.externalSelectedAccount
+                    && p.externalSelectedAccount !== EXTERNAL_ACCOUNT_TOTALS_ID
+                    && p.externalSelectedAccount !== EXTERNAL_ACCOUNT_SUBSET_ID
+                ) {
+                    cur.add(p.externalSelectedAccount);
+                }
+                if (cur.has(clicked)) cur.delete(clicked);
+                else cur.add(clicked);
+                const ordered = names.filter((n) => n !== EXTERNAL_ACCOUNT_TOTALS_ID && cur.has(n));
+                if (!ordered.length) {
+                    delete p.externalCombinedAccounts;
+                    p.externalSelectedAccount = EXTERNAL_ACCOUNT_TOTALS_ID;
+                } else if (ordered.length === 1) {
+                    delete p.externalCombinedAccounts;
+                    p.externalSelectedAccount = ordered[0];
+                } else {
+                    p.externalCombinedAccounts = ordered;
+                    p.externalSelectedAccount = EXTERNAL_ACCOUNT_SUBSET_ID;
+                }
+            } else {
+                delete p.externalCombinedAccounts;
+                p.externalSelectedAccount = clicked;
+            }
+
+            p.memory = p.memory || {};
+            if (externalPanelHasRows(p)) {
+                p.memory.externalAccount = buildExternalAccountMemorySnapshot(p);
             }
             saveState();
             state.ui.openTray = pid;
@@ -6468,31 +7562,20 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         /** Hide a real account chip by tray index (EXTERNAL ACCOUNT) — avoids encoding bugs from inline onclick. */
         function externalAccountHideAccountByIndex(pid, index) {
             const p = state.panels[pid];
-            if (!p || p.type !== 'externalAccount' || !p.externalImport?.rows) return;
+            if (!p || p.type !== 'externalAccount' || !externalPanelHasRows(p)) return;
             const names = getExternalAccountNamesForPanel(p);
             const i = Number(index);
             if (!Number.isFinite(i) || i < 0 || i >= names.length) return;
             const name = names[i];
             if (!name || name === EXTERNAL_ACCOUNT_TOTALS_ID) return;
-            const all = getExternalAccountNamesFromImport(p.externalImport);
+            const all = getExternalAccountNamesFromImport(p);
             if (!all.includes(name)) return;
             p.externalHiddenAccounts = Array.isArray(p.externalHiddenAccounts) ? p.externalHiddenAccounts : [];
             if (p.externalHiddenAccounts.includes(name)) return;
             p.externalHiddenAccounts.push(name);
-            const vis = getExternalAccountNamesForPanel(p);
-            if (p.externalSelectedAccount === name || !vis.includes(p.externalSelectedAccount)) {
-                p.externalSelectedAccount = vis[0] || null;
-            }
+            externalNormalizeSelectionAfterAccountListChange(p);
             p.memory = p.memory || {};
-            p.memory.externalAccount = p.memory.externalAccount || {
-                externalImport: p.externalImport,
-                externalSelectedAccount: p.externalSelectedAccount,
-                externalSymbolOverrides: { ...(p.externalSymbolOverrides || {}) },
-                externalHiddenAccounts: [...p.externalHiddenAccounts],
-                externalCostBasisOverrides: { ...(p.externalCostBasisOverrides || {}) },
-            };
-            p.memory.externalAccount.externalHiddenAccounts = [...p.externalHiddenAccounts];
-            p.memory.externalAccount.externalSelectedAccount = p.externalSelectedAccount;
+            p.memory.externalAccount = buildExternalAccountMemorySnapshot(p);
             saveState();
             state.ui.openTray = pid;
             renderAllPanels();
@@ -6580,14 +7663,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 p.externalCostBasisOverrides[costKey] = Number(total.toFixed(2));
             }
             p.memory = p.memory || {};
-            p.memory.externalAccount = p.memory.externalAccount || {
-                externalImport: p.externalImport,
-                externalSelectedAccount: p.externalSelectedAccount,
-                externalSymbolOverrides: { ...(p.externalSymbolOverrides || {}) },
-                externalHiddenAccounts: [...(p.externalHiddenAccounts || [])],
-                externalCostBasisOverrides: {},
-            };
-            p.memory.externalAccount.externalCostBasisOverrides = { ...(p.externalCostBasisOverrides || {}) };
+            p.memory.externalAccount = buildExternalAccountMemorySnapshot(p);
             saveState();
             rerenderPanelBody(pid);
             void refreshAll();
@@ -6656,7 +7732,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 rerenderPanelBody(pid);
                 return;
             }
-            const rows = p.externalImport?.rows || [];
+            const rows = getExternalMergedRows(p);
             const matched = rows.filter(r => externalOverrideKeyFromRow(r) === csvKey);
             const oldCostKeys = matched.map(r => externalCostBasisOverrideKey(p, r));
             const prevOv = (p.externalSymbolOverrides && p.externalSymbolOverrides[csvKey]) || '';
@@ -6690,11 +7766,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     delete p.externalCostBasisOverrides[oldK];
                 }
             }
-            if (p.memory?.externalAccount) {
-                p.memory.externalAccount.externalSymbolOverrides = { ...(p.externalSymbolOverrides || {}) };
-                if (p.externalCostBasisOverrides && typeof p.externalCostBasisOverrides === 'object') {
-                    p.memory.externalAccount.externalCostBasisOverrides = { ...p.externalCostBasisOverrides };
-                }
+            p.memory = p.memory || {};
+            if (externalPanelHasRows(p)) {
+                p.memory.externalAccount = buildExternalAccountMemorySnapshot(p);
             }
             saveState();
             rerenderPanelBody(pid);
@@ -6897,8 +7971,17 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
         });
 
+        window.addEventListener('beforeunload', () => {
+            if (quoteCachePersistTimer) {
+                clearTimeout(quoteCachePersistTimer);
+                quoteCachePersistTimer = null;
+            }
+            flushQuoteCacheToStorage();
+        });
+
         document.addEventListener('DOMContentLoaded', () => {
             loadState();
+            loadQuoteCacheFromStorage();
             syncNewsTopicsRegistryFromState();
             renderAllPanels();
             updateClock();
