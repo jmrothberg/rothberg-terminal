@@ -2071,16 +2071,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     }
                 }
 
-                // Pre-market quotes are relative to previous-day close; after-hours
-                // quotes are relative to today's regular close — matching how
-                // Yahoo displays them.
-                //
-                // Use the same prior anchor as `previousClose` above (chartPreviousClose
-                // ?? previousClose). A separate meta.previousClose-first baseline for PRE
-                // diverged from REG on Mon pre-market (wrong vs Fri close).
+                // Pre-market change vs last official regular close (`regularMarketPrice`
+                // during PRE — same anchor as POST uses). `previousClose` here is
+                // chartPreviousClose ?? previousClose: Yahoo uses it for the *completed*
+                // session's daily REG move, but it is one session behind `regularMarketPrice`
+                // in premarket, so PRE change vs `previousClose` looked like "vs two closes ago".
                 // Staleness: only trust `meta.preMarketPrice` / `postMarketPrice`
                 // when their timestamp falls inside today's pre/post window.
-                const priorCloseAnchor = previousClose;
                 const preInWindow  = Number.isFinite(meta.preMarketTime)  && preWin
                     && meta.preMarketTime  >= preWin[0]  && meta.preMarketTime  < preWin[1];
                 const postInWindow = Number.isFinite(meta.postMarketTime) && postWin
@@ -2091,9 +2088,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const postMarketPrice = lastPostClose != null
                     ? lastPostClose
                     : (Number.isFinite(meta.postMarketPrice) && postInWindow ? meta.postMarketPrice : null);
-                const preMarketChange  = preMarketPrice  != null && priorCloseAnchor != null ? (preMarketPrice  - priorCloseAnchor) : null;
+                const preMarketChange  = preMarketPrice  != null && regularPrice != null ? (preMarketPrice  - regularPrice) : null;
                 const postMarketChange = postMarketPrice != null && regularPrice  != null ? (postMarketPrice - regularPrice)  : null;
-                const preMarketChangePercent  = preMarketChange  != null && priorCloseAnchor ? (preMarketChange  / priorCloseAnchor) * 100 : null;
+                const preMarketChangePercent  = preMarketChange  != null && regularPrice ? (preMarketChange  / regularPrice) * 100 : null;
                 const postMarketChangePercent = postMarketChange != null && regularPrice  ? (postMarketChange / regularPrice)  * 100 : null;
 
                 // Derive marketState from tradingPeriod timestamps when meta
