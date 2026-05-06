@@ -177,6 +177,8 @@ The broader `Energy` chip remains a curated Google-News search (`crude oil OPEC 
 
 `WATCHLIST` and `INDICES` panels have an `EXT HRS` toggle in the tray (per-panel — each panel remembers its own setting). When ON and the market is in a pre-market or after-hours session, the row swaps to show the extended-session price, change, and volume, with a gold `PRE` or `AH` badge next to the price and a `REG CLOSE $XXX.XX` tag in the meta row so the regular close is never lost. The panel title gains a gold `· EXT` marker. During regular hours with the toggle ON, rows show a dim `REG` badge but display normal regular-session values. Toggle OFF to hide badges and extended data entirely. Backed by Yahoo Finance's `includePrePost=true` chart endpoint.
 
+**PRE / AH change anchors are derived from the bar series**, not from `meta.regularMarketPrice` or `chartPreviousClose`: PRE change uses the last bar before today's pre-market window (= last night's regular close); AH change uses the last bar inside today's regular-session window (= today's regular close). This matches Yahoo's own pre/after-hours display and avoids a class of bugs where Yahoo's `meta.*` fields lag a session and the change ends up anchored to *two* nights ago.
+
 ### Interactions
 
 - **Click any panel title** → tray slides down in phosphor green
@@ -309,7 +311,7 @@ Whichever one succeeds becomes the preferred proxy for subsequent requests in th
 }
 ```
 
-- **Caching:** runtime `quoteCache` and `newsCache` (TTL-guarded) to avoid hammering proxies on tray toggles.
+- **Caching:** runtime `newsCache` (TTL-guarded) plus a **persisted** `quoteCache` (localStorage key `bloomberg_quote_cache_v2`, 7-day TTL, capped at 400 symbols) so reloads paint last-known prices/sparklines immediately while a fresh refresh runs in the background. Persisted entries render in dim-green (or **dim-red on negatives** in EXTERNAL ACCOUNT rows) until the refresh lands.
 - **Refresh:** auto-refresh every 60s (configurable), plus manual `[R]` or `[REFRESH]` button.
 
 ---
