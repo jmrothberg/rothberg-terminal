@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.5</title>
+    <title>ROTHBERG TERMINAL v1.5.1</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1104,7 +1104,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.5</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.5.1</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1324,6 +1324,13 @@ export open positions (not a generic spreadsheet you invent).
 
 Tray (after load): <strong>DISPLAY</strong> = table sort / heat map; <strong>P/L COLS</strong> =
 <strong>TOTAL P/L</strong> (vs cost) vs <strong>DAILY P/L</strong> (last columns vs prior close).
+
+<strong>Multiple CSVs / updates:</strong> <strong>FILE</strong> lists each loaded export; <strong>[×]</strong> on a name
+removes only that file (SYM maps and cost you typed are kept for rows that still exist
+in the remaining files). <strong>CLEAR ALL</strong> removes every file and also clears SYM
+overrides, manual cost, and restricted-lot Yahoo mappings — use per-file <strong>[×]</strong> if you
+want to keep that work. <strong>ADD CSV</strong> with the <em>same filename</em> as an entry already in
+<strong>FILE</strong> replaces that entry (typical Fidelity re-download) instead of duplicating it.
 
 <strong>ACCOUNT chips — combine a subset (like mini-TOTALS!):</strong>
   - Normal click: one account (or TOTALS! for everything), same as before.
@@ -4349,7 +4356,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         <span class="tray-label">LOAD</span>
                         <button type="button" class="header-btn" onclick="promptExternalAccountCsv('${pid}')">ADD CSV</button>
                         ${srcs.length ? `<button type="button" class="header-btn" onclick="clearExternalAccountImport('${pid}')" title="Remove every loaded file and reset this panel">CLEAR ALL</button>` : ''}
-                        <span class="tray-hint">Fidelity → Positions → export Portfolio_Positions*.csv — each <strong>ADD CSV</strong> appends positions (accounts + TOTALS!) without dropping prior files; use each file’s <strong>[×]</strong> to remove one export, or <strong>CLEAR ALL</strong>. Picker starts in Downloads when the browser supports it.</span>
+                        <span class="tray-hint">Fidelity → Positions → export Portfolio_Positions*.csv — <strong>ADD CSV</strong> appends a <em>new</em> file; if the filename matches one already loaded, that older copy is replaced (updated export). Under <strong>FILE</strong>, each name has <strong>[×]</strong> to remove one export only; <strong>CLEAR ALL</strong> wipes every file <em>and</em> SYM/cost overrides. Picker starts in Downloads when the browser supports it.</span>
                         <input type="file" id="external-csv-${pid}" accept=".csv,text/csv" style="display:none"
                                onchange="onExternalAccountCsvInput('${pid}',this)">
                     </div>
@@ -7674,6 +7681,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 : {};
             const prevHidden = Array.isArray(p.externalHiddenAccounts) ? [...p.externalHiddenAccounts] : [];
             ensureExternalBundles(p);
+            // Re-import with the same filename replaces that prior bundle (Fidelity often reuses the name on re-download) so positions are not doubled.
+            const dupName = (file.name && String(file.name).trim()) || '';
+            if (dupName && Array.isArray(p.externalSources) && p.externalSources.length) {
+                p.externalSources = p.externalSources.filter(s => String(s.fileName || '').trim() !== dupName);
+            }
             externalRefreshRestrictedLotPrefsInMemory(p);
             const bundle = {
                 id: `ext-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
