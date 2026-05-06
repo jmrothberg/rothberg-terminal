@@ -177,12 +177,12 @@ The broader `Energy` chip remains a curated Google-News search (`crude oil OPEC 
 
 `WATCHLIST` and `INDICES` panels have an `EXT HRS` toggle in the tray (per-panel — each panel remembers its own setting). When ON and the market is in a pre-market or after-hours session, the row swaps to show the extended-session price, change, and volume, with a gold `PRE` or `AH` badge next to the price and a `REG CLOSE $XXX.XX` tag in the meta row so the regular close is never lost. The panel title gains a gold `· EXT` marker. During regular hours with the toggle ON, rows show a dim `REG` badge but display normal regular-session values. Toggle OFF to hide badges and extended data entirely. Backed by Yahoo Finance's `includePrePost=true` chart endpoint.
 
-**PRE / AH change anchors are derived from the bar series**, not from `meta.regularMarketPrice` or `chartPreviousClose`: PRE change uses the last bar before today's pre-market window (= last night's regular close); AH change uses the last bar inside today's regular-session window (= today's regular close). This matches Yahoo's own pre/after-hours display and avoids a class of bugs where Yahoo's `meta.*` fields lag a session and the change ends up anchored to *two* nights ago.
+**How PRE / AH numbers are computed:** Extended **price** (when bars exist) is the latest 1m close inside Yahoo's pre-market or post-market window (`currentTradingPeriod`); volume is summed over those bars. If the series is missing, the code falls back to `meta.preMarketPrice` / `meta.postMarketPrice` only when Yahoo's timestamp sits inside that window. **PRE dollar / percent change** is vs **`regularMarketPrice`** (last official regular close), not vs `chartPreviousClose` — the chart prior close is what we use for the **completed session's REG** day move and can sit one session behind the close you want for pre-market, which used to look like “gain vs two days ago.” **After-hours** change uses the same regular close anchor.
 
 ### Interactions
 
 - **Click any panel title** → tray slides down in phosphor green
-- **Panel-type chips** → reassign that panel to any of the 12 types
+- **Panel-type chips** → reassign that panel to any of the 14 types
 - **DISPLAY row** (price panels) → **ENTERED** / **A↔Z** / **%** for the quote table, or **HEAT MAP** for the sector treemap (same symbols)
 - **Type symbol + Enter** → validated against live data and added to the panel
 - **Autocomplete** → as you type, the tray suggests matching tickers (via Yahoo search)
@@ -191,7 +191,7 @@ The broader `Energy` chip remains a curated Google-News search (`crude oil OPEC 
 
 ### State persistence
 
-Your panel layout, assignments, symbols, and news topic are saved to `localStorage` under `bloomberg_state_v2`. Reload the page — everything stays. Clear the key to reset.
+Your panel layout, assignments, symbols, and news topics are saved to `localStorage` under `bloomberg_state_v2`. Last-good quotes are stored separately under `bloomberg_quote_cache_v1` (see Architecture). Reload the page — layout and cached quotes repopulate; a refresh run updates live numbers. Clear `bloomberg_state_v2` to reset the UI; clear the quote key if you want to drop stale prices only.
 
 ---
 
@@ -291,8 +291,8 @@ Whichever one succeeds becomes the preferred proxy for subsequent requests in th
 
 **Single HTML file. Vanilla JS. Zero build step.**
 
-- **UI:** ~400 lines of CSS (phosphor-on-black, IBM Plex Mono), ~80 lines of HTML shell
-- **Logic:** ~5200 lines of vanilla JavaScript, no framework
+- **UI:** ~1.1k lines of CSS (phosphor-on-black, IBM Plex Mono), ~400 lines of HTML shell (header, grid, help)
+- **Logic:** ~6.8k lines of vanilla JavaScript in one `<script>` block, no framework
 - **State model:**
 
 ```js
@@ -311,7 +311,7 @@ Whichever one succeeds becomes the preferred proxy for subsequent requests in th
 }
 ```
 
-- **Caching:** runtime `newsCache` (TTL-guarded) plus a **persisted** `quoteCache` (localStorage key `bloomberg_quote_cache_v2`, 7-day TTL, capped at 400 symbols) so reloads paint last-known prices/sparklines immediately while a fresh refresh runs in the background. Persisted entries render in dim-green (or **dim-red on negatives** in EXTERNAL ACCOUNT rows) until the refresh lands.
+- **Caching:** runtime `newsCache` (TTL-guarded) plus in-memory `quoteCache` with **debounced persistence** to localStorage (`bloomberg_quote_cache_v1`: 7-day TTL per entry, max **400** symbols, 500ms debounce) so reloads show last-known prices immediately while a fresh refresh runs; persisted rows render **dim** (`--stale`) until new data lands. EXTERNAL ACCOUNT holdings use the same stale tint, with **dim red** on negative stale changes where applicable.
 - **Refresh:** auto-refresh every 60s (configurable), plus manual `[R]` or `[REFRESH]` button.
 
 ---
@@ -345,6 +345,7 @@ This is **expected** when CORS proxies are all down. Crypto uses CoinGecko direc
 In DevTools console:
 ```js
 localStorage.removeItem('bloomberg_state_v2');
+localStorage.removeItem('bloomberg_quote_cache_v1');
 location.reload();
 ```
 
@@ -357,6 +358,7 @@ rothberg-terminal/
 ├── index.html        # The entire app (HTML + CSS + JS in one file)
 ├── SPEC.md           # Original design spec (aesthetic, layout, color palette)
 ├── README.md         # This file
+├── docs/             # Optional developer notes (not required to run the app)
 ├── package.json      # Optional Playwright dev dependency for future tests
 └── .gitignore
 ```
