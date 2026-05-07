@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.5.5</title>
+    <title>ROTHBERG TERMINAL v1.5.6</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1104,7 +1104,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.5.5</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.5.6</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1334,8 +1334,9 @@ want to keep that work. <strong>ADD CSV</strong> with the <em>same filename</em>
 
 <strong>TOTALS! chip row:</strong> With <strong>TOTALS!</strong> selected, every real account chip is
   <em>lit</em> (included in the rollup). Click an account to dim it and drop that account from the
-  combined table; click again to add back. Click <strong>TOTALS!</strong> a second time when any
-  chips are dimmed to include all accounts again.
+  combined table; click again to add back. Click <strong>TOTALS!</strong> as a master on/off — when
+  every chip is lit, one click dims them all (TOTALS! goes dim too); click again to light every chip
+  back up.
 
 <strong>ACCOUNT chips — combine a subset (like mini-TOTALS!):</strong>
   - Normal click: one account (or TOTALS! for everything), same as before.
@@ -4449,8 +4450,12 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         tit = `${lab} · Shift+click or ⌘+click (or long-press ~0.5s) to combine accounts`;
                     } else if (acSel === EXTERNAL_ACCOUNT_TOTALS_ID) {
                         if (n === EXTERNAL_ACCOUNT_TOTALS_ID) {
-                            active = ' active';
-                            tit = 'TOTALS! · Lit accounts are in the rollup; dimmed are out. Click TOTALS! again to include all.';
+                            const realCount = names.filter((x) => x !== EXTERNAL_ACCOUNT_TOTALS_ID).length;
+                            const allOff = realCount > 0 && totalsEx.length >= realCount;
+                            active = allOff ? '' : ' active';
+                            tit = allOff
+                                ? 'TOTALS! · Off — click to light up every account again.'
+                                : 'TOTALS! · On — click to dim every account at once. Click a single account to drop just that one.';
                         } else {
                             active = totalsEx.includes(n) ? '' : ' active';
                             tit = totalsEx.includes(n)
@@ -4487,7 +4492,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     ${names.length > 2 ? `
                     <div class="tray-row">
                         <span class="tray-label"></span>
-                        <span class="tray-hint"><strong>Combine:</strong> Shift+click or ⌘+click another account (or <strong>long-press ~0.5s</strong> on phone/tablet) to roll up only those accounts — same layout as TOTALS!, not every file. Click <strong>TOTALS!</strong> to clear the multi-select. On <strong>TOTALS!</strong> alone, every real account chip is lit; click one to drop it from the rollup (click again to add back; click <strong>TOTALS!</strong> twice to reset all).</span>
+                        <span class="tray-hint"><strong>Combine:</strong> Shift+click or ⌘+click another account (or <strong>long-press ~0.5s</strong> on phone/tablet) to roll up only those accounts — same layout as TOTALS!, not every file. Click <strong>TOTALS!</strong> to clear the multi-select. On <strong>TOTALS!</strong> alone, every real account chip is lit; click one to drop it from the rollup (click again to add back). <strong>TOTALS!</strong> itself is a master toggle — one click dims every account at once, another click lights them all back up.</span>
                     </div>` : ''}
                     ${externalPanelHasRows(panel) ? `
                     <div class="tray-row">
@@ -5821,6 +5826,43 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         costLines++;
                     }
                 }
+                // %PORT / heat-map merge: if no basis resolved per line (common when overrides object was empty on first paint), sum CSV Cost Basis Total.
+                if (!costLines) {
+                    for (const r of g.rows) {
+                        const ct = r.costBasisTotal;
+                        if (ct != null && Number.isFinite(ct)) {
+                            sumCost += ct;
+                            costLines++;
+                        }
+                    }
+                }
+                // Restricted numeric CUSIP: merge may bundle lines that share manual keys — sum distinct id:|qty and legacy Yahoo|qty keys present in overrides.
+                if (!costLines) {
+                    const ck0 = externalOverrideKeyFromRow(g.rows[0]);
+                    if (
+                        isExternalRestrictedCsvSymbol(ck0)
+                        && g.rows.every((r) => externalOverrideKeyFromRow(r) === ck0)
+                    ) {
+                        const ov = panel.externalCostBasisOverrides;
+                        if (ov && typeof ov === 'object') {
+                            const uniq = new Set();
+                            for (const r of g.rows) {
+                                const idK = externalCostBasisOverrideKey(panel, r);
+                                if (idK) uniq.add(idK);
+                                const yk = getExternalRowQuoteKey(panel, r);
+                                const qn = normalizeQtyForCostKey(r.quantity);
+                                if (yk && qn) uniq.add(`${yk}|${qn}`);
+                            }
+                            for (const k of uniq) {
+                                const v = ov[k];
+                                if (v != null && Number.isFinite(v)) {
+                                    sumCost += v;
+                                    costLines++;
+                                }
+                            }
+                        }
+                    }
+                }
                 let quoteKey = null;
                 for (const r of g.rows) {
                     const qkr = getExternalRowQuoteKey(panel, r);
@@ -6028,7 +6070,33 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     const portStr = g.portfolioPct != null ? `${Math.round(g.portfolioPct)}%` : '—';
                     let costCell = '';
                     if (g.multi) {
-                        costCell = `<span class="num">${costBasis != null ? formatExternalUsdWhole(costBasis) : '—'}</span>`;
+                        let costKeyM = '';
+                        for (const rr of g.rows) {
+                            const ckx = externalCostBasisOverrideKey(panel, rr);
+                            if (ckx) {
+                                costKeyM = ckx;
+                                break;
+                            }
+                        }
+                        const costKeyEncM = encodeURIComponent(costKeyM || '_');
+                        if (costBasis != null && Number.isFinite(costBasis)) {
+                            costCell = `<span class="num">${formatExternalUsdWhole(costBasis)}</span>`;
+                        } else if (costKeyM && editCostKey === costKeyM) {
+                            let curTot = '';
+                            if (costBasis != null && Number.isFinite(costBasis)) curTot = String(costBasis);
+                            else {
+                                const rawO = panel.externalCostBasisOverrides && panel.externalCostBasisOverrides[costKeyM];
+                                if (rawO != null && Number.isFinite(rawO)) curTot = String(rawO);
+                            }
+                            const curCm = escapeAttr(curTot);
+                            costCell = `<input type="text" class="external-cost-edit" id="ext-cost-edit-${pid}" value="${curCm}"
+                                onclick="event.stopPropagation()" onkeydown="externalAccountCostEditKeydown(event,'${escapeAttr(pid)}','${costKeyEncM}')"
+                                onblur="externalAccountCommitCostBasis('${escapeAttr(pid)}','${costKeyEncM}',this.value)" placeholder="Avg $/sh">`;
+                        } else if (costKeyM) {
+                            costCell = `<span class="num eh-cost--click" title="Merged row · sum of basis across lines; click to enter avg $/sh for this cost slot (${g.rows.length} CSV lines)." onclick="event.stopPropagation();externalAccountStartCostEdit('${escapeAttr(pid)}','${costKeyEncM}')">—</span>`;
+                        } else {
+                            costCell = `<span class="num">—</span>`;
+                        }
                     } else {
                         const costKey = externalCostBasisOverrideKey(panel, r0);
                         const costKeyEnc = encodeURIComponent(costKey || '_');
@@ -7957,19 +8025,26 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 && p.externalSelectedAccount === EXTERNAL_ACCOUNT_TOTALS_ID
                 && !p.externalCombinedAccounts
             ) {
-                const ex = p.externalTotalsExcludedAccounts;
-                if (Array.isArray(ex) && ex.length) {
+                // TOTALS! second click = on/off toggle for every sub-chip.
+                // Has any exclusion → clear → all subs light up. No exclusions → exclude every real account → all subs dim.
+                const realNames = names.filter((n) => n !== EXTERNAL_ACCOUNT_TOTALS_ID);
+                const ex = Array.isArray(p.externalTotalsExcludedAccounts) ? p.externalTotalsExcludedAccounts : [];
+                if (ex.length) {
                     delete p.externalTotalsExcludedAccounts;
-                    p.memory = p.memory || {};
-                    if (externalPanelHasRows(p)) {
-                        p.memory.externalAccount = buildExternalAccountMemorySnapshot(p);
-                    }
-                    saveState();
-                    state.ui.openTray = pid;
-                    renderAllPanels();
-                    document.getElementById(`panel-${pid}`)?.classList.add('tray-open');
-                    void refreshAll();
+                } else if (realNames.length) {
+                    p.externalTotalsExcludedAccounts = [...realNames];
+                } else {
+                    return;
                 }
+                p.memory = p.memory || {};
+                if (externalPanelHasRows(p)) {
+                    p.memory.externalAccount = buildExternalAccountMemorySnapshot(p);
+                }
+                saveState();
+                state.ui.openTray = pid;
+                renderAllPanels();
+                document.getElementById(`panel-${pid}`)?.classList.add('tray-open');
+                void refreshAll();
                 return;
             }
             if (!mult && clicked !== EXTERNAL_ACCOUNT_TOTALS_ID && !p.externalCombinedAccounts && p.externalSelectedAccount === clicked) {
@@ -8011,16 +8086,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 p.externalSelectedAccount === EXTERNAL_ACCOUNT_TOTALS_ID
                 && clicked !== EXTERNAL_ACCOUNT_TOTALS_ID
             ) {
-                const real = names.filter((n) => n !== EXTERNAL_ACCOUNT_TOTALS_ID);
                 let ex = Array.isArray(p.externalTotalsExcludedAccounts) ? [...p.externalTotalsExcludedAccounts] : [];
                 const pos = ex.indexOf(clicked);
-                if (pos >= 0) {
-                    ex.splice(pos, 1);
-                } else {
-                    const trial = [...ex, clicked];
-                    const inclCount = real.filter((n) => !trial.includes(n)).length;
-                    if (inclCount >= 1) ex = trial;
-                }
+                if (pos >= 0) ex.splice(pos, 1);
+                else ex.push(clicked);
                 if (ex.length) p.externalTotalsExcludedAccounts = ex;
                 else delete p.externalTotalsExcludedAccounts;
             } else {
