@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.5.3</title>
+    <title>ROTHBERG TERMINAL v1.5.4</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1104,7 +1104,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.5.3</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.5.4</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1942,8 +1942,14 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             for (const p of Object.values(state.panels)) {
                 if (p && migrateLegacyExternalSymbolOverrideKeys(p)) dirty = true;
             }
+            // Rehydrate prefs → live overrides before legacy cost migration (cold load / import never ran changePanelType hydrate).
             for (const p of Object.values(state.panels)) {
-                if (p && p.type === 'externalAccount' && migrateLegacyExternalCostBasisForRestricted(p)) dirty = true;
+                if (!p || p.type !== 'externalAccount' || !externalPanelHasRows(p)) continue;
+                externalRehydrateRestrictedLotPrefsToLive(p);
+                const migrated = migrateLegacyExternalCostBasisForRestricted(p);
+                const fpBefore = externalRestrictedLotPrefsFingerprint(p);
+                externalRefreshRestrictedLotPrefsInMemory(p);
+                if (migrated || externalRestrictedLotPrefsFingerprint(p) !== fpBefore) dirty = true;
             }
             if (dirty) saveState();
         }
@@ -3435,6 +3441,22 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             panel.memory.externalAccount.restrictedLotPrefs = prev;
         }
 
+        /** Stable summary of restrictedLotPrefs for migration dirty-check (key order–independent). */
+        function externalRestrictedLotPrefsFingerprint(panel) {
+            const prefs = panel.memory?.externalAccount?.restrictedLotPrefs;
+            if (!prefs || typeof prefs !== 'object') return '';
+            const keys = Object.keys(prefs).sort();
+            const parts = [];
+            for (const k of keys) {
+                const e = prefs[k];
+                if (!e || typeof e !== 'object') continue;
+                const y = e.yahooSym != null ? String(e.yahooSym).trim() : '';
+                const m = e.manualCostTotal != null && Number.isFinite(e.manualCostTotal) ? e.manualCostTotal : '';
+                parts.push(`${k}|${y}|${m}`);
+            }
+            return parts.join(';');
+        }
+
         /** Apply stored restricted-lot prefs onto live overrides for rows currently in the merge. */
         function externalRehydrateRestrictedLotPrefsToLive(panel) {
             const prefs = panel.memory?.externalAccount?.restrictedLotPrefs;
@@ -3456,7 +3478,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
         }
 
-        /** One-time: move manual cost from legacy Yahoo|qty keys to id:CUSIP|qty for restricted rows. */
+        /** Move manual cost from legacy ticker|qty keys to id:CUSIP|qty for restricted rows (prefs + CSV pruning). */
         function migrateLegacyExternalCostBasisForRestricted(panel) {
             const cost = panel.externalCostBasisOverrides;
             if (!cost || typeof cost !== 'object') return false;
@@ -3472,12 +3494,38 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const yk = getExternalRowQuoteKey(panel, r);
                 const q = normalizeQtyForCostKey(r.quantity);
                 if (!yk || !q) continue;
-                const oldK = `${yk}|${q}`;
-                const v = next[oldK];
+                const suf = `|${q}`;
+                const resolvedNorm = normalizeExternalUserSymbol(yk);
+                let v = null;
+                const primary = `${yk}|${q}`;
+                const vp = next[primary];
+                if (vp != null && Number.isFinite(vp)) v = vp;
+                if (v == null) {
+                    const upperKey = `${String(yk).toUpperCase()}|${q}`;
+                    if (upperKey !== primary) {
+                        const vu = next[upperKey];
+                        if (vu != null && Number.isFinite(vu)) v = vu;
+                    }
+                }
+                // Alias mismatch (e.g. BRKB vs BRK-B): match any non-id cost key with same qty + normalized ticker.
+                if (v == null) {
+                    for (const k of Object.keys(next)) {
+                        if (k.startsWith('id:')) continue;
+                        if (!k.endsWith(suf)) continue;
+                        const prefix = k.slice(0, -suf.length);
+                        const pn = normalizeExternalUserSymbol(prefix);
+                        if (!pn || pn !== resolvedNorm) continue;
+                        const val = next[k];
+                        if (val != null && Number.isFinite(val)) {
+                            v = val;
+                            break;
+                        }
+                    }
+                }
                 if (v != null && Number.isFinite(v)) {
                     next[newK] = v;
-                    delete next[oldK];
                     changed = true;
+                    // Do not delete legacy keys: multiple numeric CUSIPs can share one Yahoo|qty bucket.
                 }
             }
             if (!changed) return false;
