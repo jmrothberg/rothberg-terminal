@@ -8,7 +8,7 @@ A single-file, browser-only clone of the Bloomberg Terminal — phosphor-green m
 
 > Click the screenshot or the launch link above to open the live terminal in your browser. No install, no signup, no keys.
 
-**Release:** the live header and browser tab show **v1.5.6** so you can confirm you are on the current build after a refresh or deploy.
+**Release:** the live header and browser tab show **v1.5.7** so you can confirm you are on the current build after a refresh or deploy.
 
 ---
 

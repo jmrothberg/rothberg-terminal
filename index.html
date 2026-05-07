@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.5.6</title>
+    <title>ROTHBERG TERMINAL v1.5.7</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1104,7 +1104,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.5.6</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.5.7</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1323,7 +1323,7 @@ export open positions (not a generic spreadsheet you invent).
   export in a spreadsheet to match these columns, then save as CSV.
 
 Tray (after load): <strong>DISPLAY</strong> = table sort / heat map; <strong>P/L COLS</strong> =
-<strong>TOTAL P/L</strong> (vs cost) vs <strong>DAILY P/L</strong> (last columns vs prior close).
+one chip toggles <strong>TOTAL P/L</strong> (vs cost) ↔ <strong>DAILY P/L</strong> (vs prior close).
 
 <strong>Multiple CSVs / updates:</strong> <strong>FILE</strong> lists each loaded export; <strong>[×]</strong> on a name
 removes only that file (SYM maps and cost you typed are kept for rows that still exist
@@ -1332,11 +1332,9 @@ overrides, manual cost, and restricted-lot Yahoo mappings — use per-file <stro
 want to keep that work. <strong>ADD CSV</strong> with the <em>same filename</em> as an entry already in
 <strong>FILE</strong> replaces that entry (typical Fidelity re-download) instead of duplicating it.
 
-<strong>TOTALS! chip row:</strong> With <strong>TOTALS!</strong> selected, every real account chip is
-  <em>lit</em> (included in the rollup). Click an account to dim it and drop that account from the
-  combined table; click again to add back. Click <strong>TOTALS!</strong> as a master on/off — when
-  every chip is lit, one click dims them all (TOTALS! goes dim too); click again to light every chip
-  back up.
+<strong>TOTALS! chip row:</strong> With <strong>TOTALS!</strong> on, every sub-account chip is <em>lit</em> for the rollup; click one to
+  <em>remove</em> that account from the combined table (click again to add back). Second click on <strong>TOTALS!</strong> is a
+  master dim/light for all subs. When you are viewing <strong>one</strong> account only, <strong>TOTALS!</strong> stays dim — only that account chip is lit.
 
 <strong>ACCOUNT chips — combine a subset (like mini-TOTALS!):</strong>
   - Normal click: one account (or TOTALS! for everything), same as before.
@@ -2520,15 +2518,36 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         /** Multi-account combined view: only rows whose Account Name is in `externalCombinedAccounts` (Shift+click / long-press). */
         const EXTERNAL_ACCOUNT_SUBSET_ID = '__EXTERNAL_SUBSET__';
 
+        /** Fidelity account names sometimes differ only by stray whitespace vs chip list — avoids falling back to TOTALS!. */
+        function externalAccountSelEquals(a, b) {
+            if (a === b) return true;
+            if (a == null || b == null) return false;
+            return String(a).trim() === String(b).trim();
+        }
+
+        function externalVisContainsAccount(vis, accountId) {
+            return Array.isArray(vis) && vis.some((n) => externalAccountSelEquals(n, accountId));
+        }
+
+        /** Align externalSelectedAccount string with tray chip labels (trim / CSV vs saved mismatch). */
+        function externalCanonicalizeSelectedAccount(panel) {
+            if (!panel || panel.type !== 'externalAccount') return;
+            const sel = panel.externalSelectedAccount;
+            if (sel == null || sel === EXTERNAL_ACCOUNT_TOTALS_ID || sel === EXTERNAL_ACCOUNT_SUBSET_ID) return;
+            const vis = getExternalAccountNamesForPanel(panel);
+            const canon = vis.find((n) => externalAccountSelEquals(n, sel));
+            if (canon != null && canon !== sel) panel.externalSelectedAccount = canon;
+        }
+
         function externalPanelSubsetAccountNames(panel) {
             const a = panel.externalCombinedAccounts;
             if (!Array.isArray(a) || a.length < 2) return null;
-            const vis = new Set(
-                getExternalAccountNamesForPanel(panel).filter((n) => n && n !== EXTERNAL_ACCOUNT_TOTALS_ID)
-            );
+            const visList = getExternalAccountNamesForPanel(panel).filter((n) => n && n !== EXTERNAL_ACCOUNT_TOTALS_ID);
             const picked = [];
             for (const n of a) {
-                if (vis.has(n) && !picked.includes(n)) picked.push(n);
+                const hit = visList.find((vn) => externalAccountSelEquals(vn, n));
+                if (!hit) continue;
+                if (!picked.some((p) => externalAccountSelEquals(p, hit))) picked.push(hit);
             }
             return picked.length >= 2 ? picked : null;
         }
@@ -2558,7 +2577,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             const vis = getExternalAccountNamesForPanel(panel);
             const subset = externalPanelSubsetAccountNames(panel);
             if (subset) {
-                const ok = subset.filter((n) => vis.includes(n) && n !== EXTERNAL_ACCOUNT_TOTALS_ID);
+                const ok = subset.filter((n) => externalVisContainsAccount(vis, n) && n !== EXTERNAL_ACCOUNT_TOTALS_ID);
                 if (ok.length >= 2) {
                     delete panel.externalTotalsExcludedAccounts;
                     panel.externalCombinedAccounts = ok;
@@ -2574,13 +2593,12 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 }
                 return;
             }
-            if (panel.externalSelectedAccount && !vis.includes(panel.externalSelectedAccount)) {
+            if (panel.externalSelectedAccount && !externalVisContainsAccount(vis, panel.externalSelectedAccount)) {
                 panel.externalSelectedAccount = vis[0] || null;
             }
             const realVis = vis.filter((n) => n && n !== EXTERNAL_ACCOUNT_TOTALS_ID);
             if (Array.isArray(panel.externalTotalsExcludedAccounts) && panel.externalTotalsExcludedAccounts.length) {
-                const ok = new Set(realVis);
-                const next = panel.externalTotalsExcludedAccounts.filter((n) => n && ok.has(n));
+                const next = panel.externalTotalsExcludedAccounts.filter((n) => n && realVis.some((r) => externalAccountSelEquals(r, n)));
                 if (next.length) panel.externalTotalsExcludedAccounts = next;
                 else delete panel.externalTotalsExcludedAccounts;
             }
@@ -2594,7 +2612,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             const hide = Array.isArray(panel.externalHiddenAccounts) ? panel.externalHiddenAccounts : [];
             if (hide.includes(n)) return false;
             const skip = Array.isArray(panel.externalTotalsExcludedAccounts) ? panel.externalTotalsExcludedAccounts : [];
-            return !skip.includes(n);
+            return !skip.some((s) => externalAccountSelEquals(s, n));
         }
 
         /** Re-render quote tables / heatmaps that list this symbol (sparkline picks up merged closes). */
@@ -3282,7 +3300,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             };
             if (p.sort && p.sort.key) snap.externalSort = { ...p.sort };
             if (p.display === 'heatmap') snap.externalDisplay = 'heatmap';
-            if (p.memory?.externalAccount?.plDisplayMode === 'daily') snap.plDisplayMode = 'daily';
+            snap.plDisplayMode = getExternalPlDisplayMode(p) === 'daily' ? 'daily' : 'total';
             return snap;
         }
 
@@ -4446,7 +4464,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     let active = '';
                     let tit = '';
                     if (subsetSel) {
-                        active = (n !== EXTERNAL_ACCOUNT_TOTALS_ID && subsetSel.includes(n)) ? ' active' : '';
+                        active = (n !== EXTERNAL_ACCOUNT_TOTALS_ID && subsetSel.some((s) => externalAccountSelEquals(s, n))) ? ' active' : '';
                         tit = `${lab} · Shift+click or ⌘+click (or long-press ~0.5s) to combine accounts`;
                     } else if (acSel === EXTERNAL_ACCOUNT_TOTALS_ID) {
                         if (n === EXTERNAL_ACCOUNT_TOTALS_ID) {
@@ -4457,14 +4475,19 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                                 ? 'TOTALS! · Off — click to light up every account again.'
                                 : 'TOTALS! · On — click to dim every account at once. Click a single account to drop just that one.';
                         } else {
-                            active = totalsEx.includes(n) ? '' : ' active';
-                            tit = totalsEx.includes(n)
+                            active = totalsEx.some((ex) => externalAccountSelEquals(ex, n)) ? '' : ' active';
+                            tit = totalsEx.some((ex) => externalAccountSelEquals(ex, n))
                                 ? `${lab} · out of TOTALS! — click to add back`
                                 : `${lab} · in TOTALS! — click to remove from rollup`;
                         }
                     } else {
-                        active = (n === acSel) ? ' active' : '';
-                        tit = `${lab} · Shift+click or ⌘+click (or long-press ~0.5s) to combine accounts`;
+                        if (n === EXTERNAL_ACCOUNT_TOTALS_ID) {
+                            active = '';
+                            tit = 'TOTALS! · Click for combined rollup of all accounts';
+                        } else {
+                            active = externalAccountSelEquals(n, acSel) ? ' active' : '';
+                            tit = `${lab} · Shift+click or ⌘+click (or long-press ~0.5s) to combine accounts`;
+                        }
                     }
                     tit = escapeAttr(tit);
                     const hideX = n === EXTERNAL_ACCOUNT_TOTALS_ID
@@ -4492,7 +4515,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     ${names.length > 2 ? `
                     <div class="tray-row">
                         <span class="tray-label"></span>
-                        <span class="tray-hint"><strong>Combine:</strong> Shift+click or ⌘+click another account (or <strong>long-press ~0.5s</strong> on phone/tablet) to roll up only those accounts — same layout as TOTALS!, not every file. Click <strong>TOTALS!</strong> to clear the multi-select. On <strong>TOTALS!</strong> alone, every real account chip is lit; click one to drop it from the rollup (click again to add back). <strong>TOTALS!</strong> itself is a master toggle — one click dims every account at once, another click lights them all back up.</span>
+                        <span class="tray-hint"><strong>Combine:</strong> Shift+click or ⌘+click another account (or <strong>long-press ~0.5s</strong> on phone/tablet) to roll up only those accounts — same layout as TOTALS!, not every file. Click <strong>TOTALS!</strong> to clear the multi-select. With <strong>TOTALS!</strong> on, click a sub-account to drop it from the rollup (again to add back). <strong>TOTALS!</strong> second click = dim or light every sub at once. One account only: only that chip is lit, not <strong>TOTALS!</strong>.</span>
                     </div>` : ''}
                     ${externalPanelHasRows(panel) ? `
                     <div class="tray-row">
@@ -4517,12 +4540,14 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         <span class="tray-label">P/L COLS</span>
                         ${(() => {
                             const daily = getExternalPlDisplayMode(panel) === 'daily';
-                            const tAct = !daily ? ' active' : '';
-                            const dAct = daily ? ' active' : '';
+                            const label = daily ? 'DAILY P/L' : 'TOTAL P/L';
+                            const tip = daily
+                                ? 'Day $ / day % vs prior close — click for total P/L vs cost'
+                                : 'Total P/L vs cost — click for daily columns';
+                            const plAct = daily ? ' active' : '';
                             return `
-                        <button class="chip${tAct}" onclick="setExternalPlDisplayMode('${pid}','total')" title="Last columns: total P/L vs cost">TOTAL P/L</button>
-                        <button class="chip${dAct}" onclick="setExternalPlDisplayMode('${pid}','daily')" title="Last columns: vs prior regular close">DAILY P/L</button>
-                        <span class="tray-hint">Table only · last two columns switch (cost P/L vs day $ / day %).</span>`;
+                        <button class="chip${plAct}" onclick="toggleExternalPlDisplayMode('${pid}')" title="${escapeAttr(tip)}">${label}</button>
+                        <span class="tray-hint">Table only · click chip to switch last two columns.</span>`;
                         })()}
                     </div>` : ''}
                 `;
@@ -5671,23 +5696,21 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             if (prevMvUsd != null && Number.isFinite(prevMvUsd)) sums.sumDayPrevMv += prevMvUsd;
         }
 
-        /** EXTERNAL ACCOUNT table: last columns = cost-basis P/L vs prior-close day P/L. */
+        /** EXTERNAL ACCOUNT table: last columns = cost-basis P/L vs prior-close day P/L (explicit total|daily in memory). */
         function getExternalPlDisplayMode(panel) {
-            return (panel && panel.memory && panel.memory.externalAccount && panel.memory.externalAccount.plDisplayMode === 'daily')
-                ? 'daily'
-                : 'total';
+            return (panel?.memory?.externalAccount?.plDisplayMode === 'daily') ? 'daily' : 'total';
         }
 
-        function setExternalPlDisplayMode(pid, mode) {
+        /** Single chip: flip EXTERNAL ACCOUNT last columns between total P/L vs cost and daily P/L. */
+        function toggleExternalPlDisplayMode(pid) {
             const p = state.panels[pid];
             if (!p || p.type !== 'externalAccount') return;
+            p.memory = p.memory || {};
             p.memory.externalAccount = p.memory.externalAccount || {};
-            if (mode === 'daily') p.memory.externalAccount.plDisplayMode = 'daily';
-            else delete p.memory.externalAccount.plDisplayMode;
+            p.memory.externalAccount.plDisplayMode = getExternalPlDisplayMode(p) === 'daily' ? 'total' : 'daily';
             saveState();
-            // Rebuild panel shell + tray so P/L COLS chips get active class (same as DISPLAY sort chips).
             state.ui.openTray = pid;
-            renderAllPanels();
+            rerenderExternalAccountTrayAndBody(pid);
         }
 
         function externalFormatDayPlPct(pct) {
@@ -7322,8 +7345,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     } else {
                         delete panel.externalCombinedAccounts;
                         const vis = getExternalAccountNamesForPanel(panel);
-                        const sel = mem?.externalSelectedAccount;
-                        panel.externalSelectedAccount = vis.includes(sel) ? sel : (vis[0] || null);
+                        const selRaw = mem?.externalSelectedAccount;
+                        let resolvedSel = vis[0] || null;
+                        if (selRaw != null && vis.length) {
+                            const hit = vis.find((vn) => externalAccountSelEquals(vn, selRaw));
+                            if (hit) resolvedSel = hit;
+                        }
+                        panel.externalSelectedAccount = resolvedSel;
                     }
                     externalNormalizeSelectionAfterAccountListChange(panel);
                     if (
@@ -7338,7 +7366,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                             panel.externalTotalsExcludedAccounts = ex2;
                         }
                     }
-                    if (mem?.plDisplayMode === 'daily') panel.memory.externalAccount.plDisplayMode = 'daily';
+                    panel.memory.externalAccount.plDisplayMode = mem?.plDisplayMode === 'daily' ? 'daily' : 'total';
                 }
                 if (mem?.externalSort && mem.externalSort.key) {
                     panel.sort = { key: mem.externalSort.key, dir: mem.externalSort.dir || 'asc' };
@@ -7715,6 +7743,22 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
         }
 
+        /** EXTERNAL ACCOUNT: refresh tray + body + title without rebuilding the whole grid (avoids fighting refreshAll / isRefreshing). */
+        function rerenderExternalAccountTrayAndBody(pid) {
+            const panelEl = document.getElementById(`panel-${pid}`);
+            const p = state.panels[pid];
+            if (!panelEl || !p || p.type !== 'externalAccount') return;
+            const typeMeta = PANEL_TYPES.externalAccount || PANEL_TYPES.stocks;
+            const titleLeft = panelEl.querySelector('.panel-title .panel-title-left');
+            if (titleLeft) {
+                titleLeft.innerHTML = `${typeMeta.label}${renderTitleDetail(p)}`;
+            }
+            const tray = panelEl.querySelector('.panel-tray');
+            if (tray) tray.innerHTML = renderTrayHTML(pid);
+            rerenderPanelBody(pid);
+            if (state.ui.openTray === pid) panelEl.classList.add('tray-open');
+        }
+
         function showTrayMessage(pid, msg, kind = 'ok') {
             const el = document.getElementById(`msg-${pid}`);
             if (!el) return;
@@ -8042,12 +8086,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 }
                 saveState();
                 state.ui.openTray = pid;
-                renderAllPanels();
-                document.getElementById(`panel-${pid}`)?.classList.add('tray-open');
-                void refreshAll();
+                rerenderExternalAccountTrayAndBody(pid);
                 return;
             }
-            if (!mult && clicked !== EXTERNAL_ACCOUNT_TOTALS_ID && !p.externalCombinedAccounts && p.externalSelectedAccount === clicked) {
+            if (!mult && clicked !== EXTERNAL_ACCOUNT_TOTALS_ID && !p.externalCombinedAccounts && externalAccountSelEquals(p.externalSelectedAccount, clicked)) {
                 return;
             }
 
@@ -8066,10 +8108,15 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     && p.externalSelectedAccount !== EXTERNAL_ACCOUNT_SUBSET_ID
                 ) {
                     cur.add(p.externalSelectedAccount);
+                } else if (p.externalSelectedAccount === EXTERNAL_ACCOUNT_TOTALS_ID) {
+                    // Shift+combine from TOTALS!: start from empty set (first picked account seeds the combine).
                 }
-                if (cur.has(clicked)) cur.delete(clicked);
-                else cur.add(clicked);
-                const ordered = names.filter((n) => n !== EXTERNAL_ACCOUNT_TOTALS_ID && cur.has(n));
+                const curCanon = new Set(
+                    names.filter((n) => n !== EXTERNAL_ACCOUNT_TOTALS_ID && [...cur].some((x) => externalAccountSelEquals(n, x)))
+                );
+                if (curCanon.has(clicked)) curCanon.delete(clicked);
+                else curCanon.add(clicked);
+                const ordered = names.filter((n) => n !== EXTERNAL_ACCOUNT_TOTALS_ID && curCanon.has(n));
                 if (!ordered.length) {
                     delete p.externalCombinedAccounts;
                     delete p.externalTotalsExcludedAccounts;
@@ -8087,7 +8134,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 && clicked !== EXTERNAL_ACCOUNT_TOTALS_ID
             ) {
                 let ex = Array.isArray(p.externalTotalsExcludedAccounts) ? [...p.externalTotalsExcludedAccounts] : [];
-                const pos = ex.indexOf(clicked);
+                const pos = ex.findIndex((x) => externalAccountSelEquals(x, clicked));
                 if (pos >= 0) ex.splice(pos, 1);
                 else ex.push(clicked);
                 if (ex.length) p.externalTotalsExcludedAccounts = ex;
@@ -8098,15 +8145,14 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 p.externalSelectedAccount = clicked;
             }
 
+            externalCanonicalizeSelectedAccount(p);
             p.memory = p.memory || {};
             if (externalPanelHasRows(p)) {
                 p.memory.externalAccount = buildExternalAccountMemorySnapshot(p);
             }
             saveState();
             state.ui.openTray = pid;
-            renderAllPanels();
-            document.getElementById(`panel-${pid}`)?.classList.add('tray-open');
-            void refreshAll();
+            rerenderExternalAccountTrayAndBody(pid);
         }
 
         /** Hide a real account chip by tray index (EXTERNAL ACCOUNT) — avoids encoding bugs from inline onclick. */
@@ -8128,9 +8174,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             p.memory.externalAccount = buildExternalAccountMemorySnapshot(p);
             saveState();
             state.ui.openTray = pid;
-            renderAllPanels();
-            document.getElementById(`panel-${pid}`)?.classList.add('tray-open');
-            void refreshAll();
+            rerenderExternalAccountTrayAndBody(pid);
         }
 
         function externalAccountStartCostEdit(pid, costKeyEnc) {
