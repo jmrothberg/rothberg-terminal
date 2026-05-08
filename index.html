@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.5.8</title>
+    <title>ROTHBERG TERMINAL v1.5.9</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1104,7 +1104,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.5.8</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.5.9</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -2099,6 +2099,18 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 // closes ago) and sometimes only today's PRE (so regularMarketPrice
                 // can lag a day). Both meta-derived anchors have been seen wrong on
                 // different mornings; deriving from bars sidesteps that.
+                //
+                // PRE-anchor priority:
+                //   1. `lastBarBeforePre` — when bars from a prior session are in the
+                //      response, the last one before today's PRE window is the right
+                //      anchor (close to yesterday's regular close).
+                //   2. In PRE / PREPRE state, `regularMarketPrice` is yesterday's
+                //      regular close (today's regular session hasn't run yet, so
+                //      Yahoo's "last regular trade" IS yesterday's close). Trust it
+                //      ahead of the meta closes — `chartPreviousClose` can lag a
+                //      session in this state, producing baselines two days old.
+                //   3. Otherwise (regular open or later), meta's previous-close fields
+                //      align with yesterday's close and are reliable.
                 const preInWindow  = Number.isFinite(meta.preMarketTime)  && preWin
                     && meta.preMarketTime  >= preWin[0]  && meta.preMarketTime  < preWin[1];
                 const postInWindow = Number.isFinite(meta.postMarketTime) && postWin
@@ -2109,7 +2121,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const postMarketPrice = lastPostClose != null
                     ? lastPostClose
                     : (Number.isFinite(meta.postMarketPrice) && postInWindow ? meta.postMarketPrice : null);
-                const preAnchor  = lastBarBeforePre ?? meta.chartPreviousClose ?? meta.previousClose ?? regularPrice;
+                const beforeRegularToday = regWin && Math.floor(Date.now() / 1000) < regWin[0];
+                const preAnchor  = lastBarBeforePre
+                    ?? (beforeRegularToday ? regularPrice : null)
+                    ?? meta.chartPreviousClose ?? meta.previousClose ?? regularPrice;
                 const postAnchor = lastRegClose ?? regularPrice;
                 const preMarketChange  = preMarketPrice  != null && preAnchor  != null ? (preMarketPrice  - preAnchor)  : null;
                 const postMarketChange = postMarketPrice != null && postAnchor != null ? (postMarketPrice - postAnchor) : null;
