@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.5.7</title>
+    <title>ROTHBERG TERMINAL v1.5.8</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1104,7 +1104,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.5.7</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.5.8</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -3096,9 +3096,17 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
         /**
          * Use CSV Current Value (+ CSV Qty for implied PRICE) instead of Yahoo — ** lines or …XX sweep/MM pattern,
-         * unless the user mapped SYM to a real Yahoo ticker.
+         * unless the user mapped SYM to a real Yahoo ticker. Also: any row whose
+         * CSV reports a Current Value but no usable Quantity (Pending Activity,
+         * illiquid lines, etc.) — without this, renaming the symbol on a value-only
+         * row would silently zero the value (Yahoo path needs qty × price).
          */
         function externalRowUsesCsvMarketValue(panel, row) {
+            const qty = row?.quantity;
+            const hasQty = qty != null && Number.isFinite(Number(qty)) && Number(qty) !== 0;
+            const cv = externalCsvMarketValueDollars(row);
+            const hasCsvValue = cv != null;
+            if (!hasQty && hasCsvValue) return true;
             const csvKey = externalOverrideKeyFromRow(row);
             const ov = csvKey && panel.externalSymbolOverrides && panel.externalSymbolOverrides[csvKey];
             if (ov != null && String(ov).trim()) return false;
