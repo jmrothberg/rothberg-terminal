@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.5.9</title>
+    <title>ROTHBERG TERMINAL v1.5.10</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1104,7 +1104,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.5.9</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.5.10</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1544,6 +1544,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             url => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`,
             url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
         ];
+        /** Each proxy attempt is aborted after this so hung third-party proxies cannot block the whole refresh. */
+        const PROXY_FETCH_ATTEMPT_MS = 14000;
 
         const PANEL_TYPES = {
             stocks:      { label: 'WATCHLIST',           usesSymbols: true,  usesNews: false, priceFormat: 'usd',   empty: 'NVDA, AAPL, TSLA…', supportsExtendedHours: true },
@@ -1782,6 +1784,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         const polymarketCache = {};   // { "filter|limit": { markets, ts } } 60s; also {"id|<id>": { market, ts }}
         const polymarketHistoryCache = {};  // { "token|interval": { points, ts } } 60s
         let isRefreshing = false;
+        /** When true, at least one refresh tick arrived during an in-flight refresh — run one more pass after it finishes (see refreshAll). */
+        let refreshPending = false;
         let refreshTimerId = null;
         let autoCompleteAbort = null;
         /** EONET: one in-flight full-feed merge so chip switches + background refresh share a single fetch. */
@@ -2022,8 +2026,27 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             for (let attempt = 0; attempt < PROXIES.length; attempt++) {
                 const proxyIdx = (currentProxy + attempt) % PROXIES.length;
                 const proxied = PROXIES[proxyIdx](bustedUrl);
+                const attemptCtrl = new AbortController();
+                let tid = setTimeout(() => {
+                    tid = null;
+                    attemptCtrl.abort();
+                }, PROXY_FETCH_ATTEMPT_MS);
+                const onParentAbort = () => {
+                    if (tid != null) {
+                        clearTimeout(tid);
+                        tid = null;
+                    }
+                    attemptCtrl.abort();
+                };
+                if (signal) {
+                    if (signal.aborted) {
+                        if (tid != null) clearTimeout(tid);
+                        throw new DOMException('Aborted', 'AbortError');
+                    }
+                    signal.addEventListener('abort', onParentAbort);
+                }
                 try {
-                    const res = await fetch(proxied, { signal, cache: 'no-store' });
+                    const res = await fetch(proxied, { signal: attemptCtrl.signal, cache: 'no-store' });
                     if (!res.ok) throw new Error(`HTTP ${res.status}`);
                     const text = await res.text();
                     if (!text) throw new Error('Empty body');
@@ -2035,7 +2058,14 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     return body;
                 } catch (err) {
                     lastErr = err;
-                    if (err.name === 'AbortError') throw err;
+                    // Caller abort: rethrow. Proxy timeout: AbortError with signal not aborted — try next proxy.
+                    if (signal && signal.aborted) throw err;
+                } finally {
+                    if (tid != null) {
+                        clearTimeout(tid);
+                        tid = null;
+                    }
+                    if (signal) signal.removeEventListener('abort', onParentAbort);
                 }
             }
             throw lastErr || new Error('All proxies failed');
@@ -4119,7 +4149,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         }
 
         async function refreshAll() {
-            if (isRefreshing) return;
+            if (isRefreshing) {
+                refreshPending = true;
+                return;
+            }
             isRefreshing = true;
             const btn = document.getElementById('refreshBtn');
             if (btn) btn.disabled = true;
@@ -4151,6 +4184,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             } finally {
                 isRefreshing = false;
                 if (btn) btn.disabled = false;
+                if (refreshPending) {
+                    refreshPending = false;
+                    void refreshAll();
+                }
             }
         }
 
