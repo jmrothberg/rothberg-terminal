@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.6.3</title>
+    <title>ROTHBERG TERMINAL v1.6.4</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -415,7 +415,8 @@
             font-family: inherit;
             font-size: 11px;
             padding: 1px 4px;
-            width: 170px;
+            width: 280px;
+            max-width: 60vw;
         }
         .flight-center-input:focus { outline: 1px solid var(--text-primary); }
 
@@ -1206,7 +1207,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.6.3</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.6.4</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1770,6 +1771,52 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         // Shared in-memory caches across all FLIGHTS panels — callsign route lookups are stable for hours.
         const flightRouteCache = {};
         const flightRouteInFlight = new Set();
+
+        // Slippy-map tile background — CARTO Dark Matter (OSM-derived, dark theme that
+        // sits cleanly under phosphor green). Tiles are 256×256 PNG, free for reasonable
+        // non-commercial use, CORS-open, no API key.
+        // Round-robin a / b / c / d subdomains so the browser can parallelize tile loads.
+        const FLIGHTS_TILE_PROVIDER = {
+            name: 'CARTO Dark Matter',
+            url: (z, x, y) => `https://${'abcd'[(x + y) % 4]}.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`,
+            maxZoom: 19,
+        };
+        // Map radius nm → tile zoom that puts ~3-5 tiles across the canvas.
+        // Higher zoom = more detail per tile, but more tiles to fetch.
+        const FLIGHTS_TILE_ZOOM_BY_RADIUS = { 5: 13, 10: 12, 25: 11, 50: 10 };
+        // Process-wide tile cache (per session). Browser HTTP cache handles longer-term
+        // persistence; this map skips creating new Image() elements on every redraw and
+        // avoids re-fetching the same tile when the panel re-mounts after a refresh.
+        const flightTileCache = new Map();   // url → HTMLImageElement
+        function getOrFetchTile(z, x, y, onReady) {
+            const n = 1 << z;
+            if (y < 0 || y >= n) return null;
+            const wrap = ((x % n) + n) % n;
+            const url = FLIGHTS_TILE_PROVIDER.url(z, wrap, y);
+            let img = flightTileCache.get(url);
+            if (img) {
+                if (img.complete && img.naturalWidth > 0) onReady && onReady(img);
+                else img.addEventListener('load', () => onReady && onReady(img), { once: true });
+                return img;
+            }
+            img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.addEventListener('load', () => onReady && onReady(img), { once: true });
+            img.addEventListener('error', () => { /* leave in cache to avoid hammering on a 404 */ }, { once: true });
+            img.src = url;
+            flightTileCache.set(url, img);
+            return img;
+        }
+        function flightTileLonToX(lon, z) { return (lon + 180) / 360 * (1 << z); }
+        function flightTileLatToY(lat, z) {
+            const r = lat * Math.PI / 180;
+            return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * (1 << z);
+        }
+        function flightTileXToLon(x, z) { return x / (1 << z) * 360 - 180; }
+        function flightTileYToLat(y, z) {
+            const n = Math.PI - 2 * Math.PI * y / (1 << z);
+            return 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+        }
 
         const CALENDAR_CATEGORIES = [
             { key: 'all',    label: 'All' },
@@ -5014,22 +5061,27 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const mapActive  = display === 'map'  ? ' active' : '';
                 const listActive = display === 'list' ? ' active' : '';
                 const c = getFlightCenter(panel);
-                const inputValue = `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`;
+                // Show whichever the user last entered: a labeled address keeps the address visible;
+                // an explicit lat/lon pin shows the numeric form.
+                const looksLikeLatLon = /^-?\d+(\.\d+)?\s*[, ]\s*-?\d+(\.\d+)?$/.test(c.label || '');
+                const inputValue = looksLikeLatLon
+                    ? `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`
+                    : (c.label || `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`);
                 flightsSection = `
                     <div class="tray-row">
                         <span class="tray-label">CENTER</span>
                         <input class="flight-center-input" type="text"
                                id="flight-center-${pid}"
                                value="${escapeAttr(inputValue)}"
-                               placeholder="lat, lon"
+                               placeholder="address, city — or lat, lon"
                                onkeydown="if(event.key==='Enter'){event.preventDefault();commitFlightCenter('${pid}',this.value);this.blur();}"
                                onblur="commitFlightCenter('${pid}',this.value)">
-                        <span class="tray-hint">${escapeHTML(c.label)} · type <strong>lat, lon</strong> + Enter to re-pin</span>
+                        <span class="tray-hint">${escapeHTML(c.label)} · type a <strong>street address</strong> / city <em>or</em> <strong>lat, lon</strong> + Enter to re-pin (addresses resolved via OpenStreetMap Nominatim)</span>
                     </div>
                     <div class="tray-row">
                         <span class="tray-label">RADIUS</span>
                         ${radiusChips}
-                        <span class="tray-hint">adsb.lol nearby aircraft · route enrichment via adsbdb.com (callsign → origin / destination / airline)</span>
+                        <span class="tray-hint">Sources unioned: airplanes.live · adsb.lol · adsb.fi · OpenSky · route enrichment via adsbdb.com (callsign → origin / destination / airline)</span>
                     </div>
                     <div class="tray-row">
                         <span class="tray-label">DISPLAY</span>
@@ -7881,12 +7933,57 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 ctx.restore();
             }
 
+            function drawTiles(c, r, pxPerNm) {
+                const z = FLIGHTS_TILE_ZOOM_BY_RADIUS[r] || 11;
+                // Tile width in canvas pixels at the current projection (locally Mercator-flat).
+                const tileLonSpan = 360 / (1 << z);
+                const tileWidthPx = tileLonSpan * 60 * Math.cos(c.lat * Math.PI / 180) * pxPerNm;
+                // Tile vertical span varies with latitude on Mercator; for small areas
+                // (< 50 nm) the linear approximation is well under 1% — use tileWidthPx
+                // for both dimensions to keep the math simple and tiles square on screen.
+                const tileHeightPx = tileWidthPx;
+                if (tileWidthPx < 8) return;   // pathological zoom; bail out
+
+                const cTileX = flightTileLonToX(c.lon, z);
+                const cTileY = flightTileLatToY(c.lat, z);
+                const halfTilesX = Math.ceil((cssW / 2) / tileWidthPx) + 1;
+                const halfTilesY = Math.ceil((cssH / 2) / tileHeightPx) + 1;
+                const x0 = Math.floor(cTileX - halfTilesX);
+                const x1 = Math.ceil(cTileX + halfTilesX);
+                const y0 = Math.max(0, Math.floor(cTileY - halfTilesY));
+                const y1 = Math.min((1 << z) - 1, Math.ceil(cTileY + halfTilesY));
+
+                const onReady = () => requestDraw();
+                ctx.save();
+                ctx.globalAlpha = 0.85;
+                for (let X = x0; X <= x1; X++) {
+                    for (let Y = y0; Y <= y1; Y++) {
+                        const tLon = flightTileXToLon(X, z);
+                        const tLat = flightTileYToLat(Y, z);
+                        const p = llToCanvas(tLat, tLon, c, pxPerNm);
+                        const img = getOrFetchTile(z, X, Y, onReady);
+                        if (img && img.complete && img.naturalWidth > 0) {
+                            // +0.5 rounding eliminates 1px seams at fractional positions on HiDPI.
+                            ctx.drawImage(img, Math.round(p.x), Math.round(p.y),
+                                Math.ceil(tileWidthPx) + 1, Math.ceil(tileHeightPx) + 1);
+                        }
+                    }
+                }
+                ctx.restore();
+                // Subtle phosphor-green wash on top so the basemap reads as background.
+                ctx.fillStyle = 'rgba(0, 32, 0, 0.18)';
+                ctx.fillRect(0, 0, cssW, cssH);
+            }
+
             function draw() {
                 drawScheduled = false;
                 const panel = state.panels[pid];
                 if (!panel || panel.type !== 'flights') return;
                 const { c, r, pxPerNm } = projection();
                 ctx.clearRect(0, 0, cssW, cssH);
+
+                // Basemap tiles (cached; only new tiles trigger network).
+                drawTiles(c, r, pxPerNm);
 
                 // Range rings
                 ctx.strokeStyle = 'rgba(0,255,0,0.18)';
@@ -8001,13 +8098,14 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 requestAnimationFrame(draw);
             }
 
-            function hitTest(mx, my) {
+            function hitTest(mx, my, hitRadiusPx) {
                 const panel = state.panels[pid];
                 if (!panel) return null;
                 const { c, pxPerNm } = projection();
                 const list = Array.isArray(panel._aircraft) ? panel._aircraft : [];
+                const rad = hitRadiusPx || 18;
                 let best = null;
-                let bestD2 = 18 * 18;
+                let bestD2 = rad * rad;
                 for (const ac of list) {
                     const p = llToCanvas(ac.lat, ac.lon, c, pxPerNm);
                     const dx = p.x - mx, dy = p.y - my;
@@ -8077,11 +8175,35 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 if (tooltip) tooltip.style.display = 'none';
             }
 
-            function onMove(e) {
+            function onPointerDown(e) {
+                // iPad: a tap is the primary interaction — show tooltip + select in one gesture.
+                // Mouse: clicking selects (or de-selects) and pins the tooltip on that aircraft.
+                const isTouch = e.pointerType === 'touch' || e.pointerType === 'pen';
                 const rect = canvas.getBoundingClientRect();
                 const mx = e.clientX - rect.left;
                 const my = e.clientY - rect.top;
-                const ac = hitTest(mx, my);
+                const ac = hitTest(mx, my, isTouch ? 28 : 18);
+                const panel = state.panels[pid];
+                if (!panel) return;
+                if (ac) {
+                    panel._selectedHex = ac.hex;
+                    hoverHex = ac.hex;
+                    showTooltipAt(mx, my, ac);
+                } else {
+                    panel._selectedHex = null;
+                    hoverHex = null;
+                    hideTooltip();
+                }
+                requestDraw();
+            }
+
+            function onPointerMove(e) {
+                // Touch devices show the tooltip via tap; ignore "drag-over" moves to avoid flicker.
+                if (e.pointerType && e.pointerType !== 'mouse') return;
+                const rect = canvas.getBoundingClientRect();
+                const mx = e.clientX - rect.left;
+                const my = e.clientY - rect.top;
+                const ac = hitTest(mx, my, 18);
                 const newHover = ac ? ac.hex : null;
                 if (newHover !== hoverHex) {
                     hoverHex = newHover;
@@ -8091,26 +8213,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 else hideTooltip();
             }
 
-            function onLeave() {
+            function onPointerLeave(e) {
+                if (e.pointerType && e.pointerType !== 'mouse') return;
                 hoverHex = null;
                 hideTooltip();
                 requestDraw();
-            }
-
-            function onClick(e) {
-                const rect = canvas.getBoundingClientRect();
-                const mx = e.clientX - rect.left;
-                const my = e.clientY - rect.top;
-                const ac = hitTest(mx, my);
-                const panel = state.panels[pid];
-                if (!panel) return;
-                if (ac) {
-                    panel._selectedHex = panel._selectedHex === ac.hex ? null : ac.hex;
-                } else {
-                    panel._selectedHex = null;
-                }
-                requestDraw();
-                // Reflect selection if the list mode is later toggled on.
             }
 
             const ro = new ResizeObserver(() => { resize(); requestDraw(); });
@@ -8119,17 +8226,21 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             resize();
             requestDraw();
 
-            canvas.addEventListener('mousemove', onMove);
-            canvas.addEventListener('mouseleave', onLeave);
-            canvas.addEventListener('click', onClick);
+            // Pointer events unify mouse + touch + pen (iPad tap, Apple Pencil) so taps don't
+            // require a synthesised hover beforehand. touch-action: manipulation also tells
+            // Safari not to swallow the tap as a scroll/zoom gesture.
+            canvas.style.touchAction = 'manipulation';
+            canvas.addEventListener('pointerdown', onPointerDown);
+            canvas.addEventListener('pointermove', onPointerMove);
+            canvas.addEventListener('pointerleave', onPointerLeave);
 
             return {
                 requestDraw,
                 dispose() {
                     ro.disconnect();
-                    canvas.removeEventListener('mousemove', onMove);
-                    canvas.removeEventListener('mouseleave', onLeave);
-                    canvas.removeEventListener('click', onClick);
+                    canvas.removeEventListener('pointerdown', onPointerDown);
+                    canvas.removeEventListener('pointermove', onPointerMove);
+                    canvas.removeEventListener('pointerleave', onPointerLeave);
                     if (tooltip && tooltip.parentNode) tooltip.parentNode.removeChild(tooltip);
                     tooltip = null;
                 },
@@ -8701,28 +8812,14 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             renderAllPanels();
         }
 
-        function commitFlightCenter(pid, raw) {
-            const panel = state.panels[pid];
-            if (!panel || panel.type !== 'flights') return;
-            const txt = String(raw || '').trim();
-            if (!txt) return;
-            // Accept "lat, lon" — also handles paste of Google Maps coords.
-            const m = txt.match(/(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/);
-            if (!m) {
-                updateStatus('FLIGHTS · COULD NOT PARSE COORDS (use "lat, lon")', 'error');
-                return;
+        function applyFlightCenter(panel, lat, lon, label) {
+            if (panel.centerLat === lat && panel.centerLon === lon && panel.centerLabel === label) {
+                return false;
             }
-            const lat = Number(m[1]);
-            const lon = Number(m[2]);
-            if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
-                updateStatus('FLIGHTS · LAT/LON OUT OF RANGE', 'error');
-                return;
-            }
-            if (panel.centerLat === lat && panel.centerLon === lon) return;
             panel.centerLat = lat;
             panel.centerLon = lon;
-            panel.centerLabel = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
-            // Different center = different aircraft set; clear before re-fetch.
+            panel.centerLabel = label;
+            // Different center = different aircraft set + different map tiles; clear before re-fetch.
             panel._aircraft = null;
             panel._aircraftFailed = false;
             panel._trails = {};
@@ -8730,6 +8827,61 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             saveState();
             renderAllPanels();
             void refreshFlightPanels().then(() => renderAllPanels());
+            return true;
+        }
+
+        /** OpenStreetMap Nominatim geocoder — free, CORS-open, no key. Asks for sane rate limits (≤ 1/s). */
+        async function geocodeAddress(query) {
+            const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
+            let data = null;
+            try {
+                const res = await fetch(url, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+                if (res.ok) data = await res.json();
+            } catch (_e) { /* fall through to proxy */ }
+            if (!Array.isArray(data) || !data.length) {
+                try { data = await fetchViaProxy(url); } catch (_e2) { data = null; }
+            }
+            if (!Array.isArray(data) || !data.length) return null;
+            const hit = data[0];
+            const lat = parseFloat(hit.lat);
+            const lon = parseFloat(hit.lon);
+            if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+            // Build a short label from the first two display_name parts (e.g. "10 W San Marino Ave, Miami Beach").
+            const label = (hit.display_name || query).split(',').slice(0, 2).map(s => s.trim()).filter(Boolean).join(', ') || query;
+            return { lat, lon, label };
+        }
+
+        async function commitFlightCenter(pid, raw) {
+            const panel = state.panels[pid];
+            if (!panel || panel.type !== 'flights') return;
+            const txt = String(raw || '').trim();
+            if (!txt) return;
+            // 1) Exact "lat, lon" — pasted Google Maps coords, decimal numbers only.
+            const m = txt.match(/^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/);
+            if (m) {
+                const lat = Number(m[1]);
+                const lon = Number(m[2]);
+                if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+                    updateStatus('FLIGHTS · LAT/LON OUT OF RANGE', 'error');
+                    return;
+                }
+                applyFlightCenter(panel, lat, lon, `${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+                return;
+            }
+            // 2) Free-text address / city → Nominatim.
+            updateStatus(`FLIGHTS · GEOCODING "${truncate(txt, 32)}"…`, 'normal');
+            try {
+                const hit = await geocodeAddress(txt);
+                if (!hit) {
+                    updateStatus(`FLIGHTS · COULD NOT FIND "${truncate(txt, 32)}"`, 'error');
+                    return;
+                }
+                applyFlightCenter(panel, hit.lat, hit.lon, hit.label);
+                updateStatus(`FLIGHTS · CENTERED ON ${hit.label}`, 'normal');
+            } catch (e) {
+                console.warn('[FLIGHTS] geocode failed:', e);
+                updateStatus('FLIGHTS · GEOCODE FAILED — try lat, lon instead', 'error');
+            }
         }
 
         function selectFlightFromList(pid, hex) {
