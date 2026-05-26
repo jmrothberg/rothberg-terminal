@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.5.12</title>
+    <title>ROTHBERG TERMINAL v1.5.13</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -346,6 +346,78 @@
             color: var(--text-dim);
             pointer-events: none;
         }
+
+        /* FLIGHTS panel — 2D top-down map of nearby aircraft. */
+        .flight-map-root {
+            position: relative;
+            width: 100%;
+            min-height: 320px;
+        }
+        .flight-map-canvas {
+            display: block;
+            width: 100%;
+            height: 320px;
+            cursor: crosshair;
+            background: radial-gradient(ellipse at 50% 50%, #061206 0%, #030603 60%, #000 100%);
+        }
+        .flight-map-hint {
+            position: absolute;
+            left: 8px;
+            bottom: 4px;
+            font-size: 9px;
+            color: var(--text-dim);
+            pointer-events: none;
+        }
+        .flight-map-tooltip {
+            position: absolute;
+            pointer-events: none;
+            background: rgba(0, 16, 0, 0.95);
+            border: 1px solid var(--text-primary);
+            color: var(--text-primary);
+            font-size: 10px;
+            padding: 4px 6px;
+            line-height: 1.4;
+            white-space: nowrap;
+            z-index: 5;
+            box-shadow: 0 0 6px rgba(0,255,0,0.25);
+            max-width: 260px;
+            white-space: normal;
+        }
+        .flight-row {
+            padding: 4px 4px;
+            border-bottom: 1px dashed var(--border-color);
+            cursor: pointer;
+            display: grid;
+            grid-template-columns: 78px 1fr 56px 54px 42px;
+            gap: 6px;
+            align-items: baseline;
+            font-size: 11px;
+        }
+        .flight-row:last-child { border-bottom: none; }
+        .flight-row.selected { background: rgba(0,255,0,0.07); }
+        .flight-row:hover     { background: rgba(0,255,0,0.04); }
+        .flight-row .flight-cs    { font-weight: bold; color: var(--text-primary); }
+        .flight-row .flight-meta  { color: var(--text-secondary); font-size: 10px; }
+        .flight-row .flight-meta .flight-route-arrow { color: var(--text-dim); margin: 0 3px; }
+        .flight-row .flight-alt,
+        .flight-row .flight-spd,
+        .flight-row .flight-dist  { text-align: right; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+        .flight-row .flight-alt.low { color: rgba(255, 176, 0, 0.95); }
+        .flight-empty {
+            padding: 12px 8px;
+            color: var(--text-dim);
+            font-size: 11px;
+        }
+        .flight-center-input {
+            background: rgba(0,32,0,0.4);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 11px;
+            padding: 1px 4px;
+            width: 170px;
+        }
+        .flight-center-input:focus { outline: 1px solid var(--text-primary); }
 
         .quote-row {
             padding: 4px 4px;
@@ -1134,7 +1206,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.5.12</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.5.13</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1591,10 +1663,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             seismic:     { label: 'SEISMIC EVENTS',      usesSymbols: false, usesNews: false, supportsGeoDisplay: true },
             storms:      { label: 'TROPICAL CYCLONES',   usesSymbols: false, usesNews: false, supportsGeoDisplay: true },
             eonet:       { label: 'EARTH EVENTS (NASA)', usesSymbols: false, usesNews: false, supportsGeoDisplay: true },
+            flights:     { label: 'FLIGHTS',             usesSymbols: false, usesNews: false, supportsFlightMap: true },
             externalAccount: { label: 'EXTERNAL ACCOUNT', usesSymbols: false, usesNews: false },
         };
 
-        const PANEL_TYPE_ORDER = ['stocks','indices','crypto','forex','commodities','bonds','news','prediction','calendar','movers','seismic','storms','eonet','externalAccount'];
+        const PANEL_TYPE_ORDER = ['stocks','indices','crypto','forex','commodities','bonds','news','prediction','calendar','movers','seismic','storms','eonet','flights','externalAccount'];
 
         const POLYMARKET_FILTERS = [
             { key: 'all',       label: 'All',       slug: null },
@@ -1677,6 +1750,27 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             seaLakeIce:   { bright: 'rgba(175,215,255,0.96)', dim: 'rgba(95,140,210,0.55)' },
             landslides:   { bright: 'rgba(200,115,255,0.92)', dim: 'rgba(95,55,140,0.5)' },
         };
+
+        // FLIGHTS — adsb.lol nearby aircraft (free, no key, usually CORS-open).
+        // Route enrichment via adsbdb.com (free, no key, CORS-open) — origin/destination per callsign.
+        const FLIGHTS_AC_URL_TEMPLATE = (lat, lon, distNm) =>
+            `https://api.adsb.lol/v2/lat/${lat.toFixed(5)}/lon/${lon.toFixed(5)}/dist/${Math.max(1, Math.round(distNm))}`;
+        const FLIGHTS_ROUTE_URL_TEMPLATE = (cs) =>
+            `https://api.adsbdb.com/v0/callsign/${encodeURIComponent(cs)}`;
+        // Default center: 10 W San Marino Ave, Venetian Islands, Miami Beach FL — overridable per panel.
+        const FLIGHTS_DEFAULT_CENTER = { lat: 25.7895, lon: -80.1592, label: '10 W San Marino Ave' };
+        const FLIGHTS_RADII = [
+            { key: 5,  label: '5 nm'  },
+            { key: 10, label: '10 nm' },
+            { key: 25, label: '25 nm' },
+            { key: 50, label: '50 nm' },
+        ];
+        const FLIGHTS_DEFAULT_RADIUS = 25;
+        const FLIGHTS_TRAIL_LIMIT = 14;
+        const FLIGHTS_ROUTE_TTL_MS = 24 * 60 * 60 * 1000;
+        // Shared in-memory caches across all FLIGHTS panels — callsign route lookups are stable for hours.
+        const flightRouteCache = {};
+        const flightRouteInFlight = new Set();
 
         const CALENDAR_CATEGORIES = [
             { key: 'all',    label: 'All' },
@@ -3951,6 +4045,237 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
         }
 
+        // ============================================================
+        // FLIGHTS — adsb.lol nearby aircraft + adsbdb.com route lookup
+        // ============================================================
+
+        function getFlightCenter(panel) {
+            const lat = Number.isFinite(panel?.centerLat) ? panel.centerLat : FLIGHTS_DEFAULT_CENTER.lat;
+            const lon = Number.isFinite(panel?.centerLon) ? panel.centerLon : FLIGHTS_DEFAULT_CENTER.lon;
+            const label = (panel?.centerLabel && String(panel.centerLabel)) || FLIGHTS_DEFAULT_CENTER.label;
+            return { lat, lon, label };
+        }
+        function getFlightRadiusNm(panel) {
+            const r = Number(panel?.radiusNm);
+            if (FLIGHTS_RADII.some(x => x.key === r)) return r;
+            return FLIGHTS_DEFAULT_RADIUS;
+        }
+        function getFlightDisplay(panel) {
+            return panel?.display === 'list' ? 'list' : 'map';
+        }
+
+        function nmBetween(lat1, lon1, lat2, lon2) {
+            const R = 3440.065; // earth mean radius, nm
+            const toR = Math.PI / 180;
+            const dLat = (lat2 - lat1) * toR;
+            const dLon = (lon2 - lon1) * toR;
+            const a = Math.sin(dLat / 2) ** 2
+                    + Math.cos(lat1 * toR) * Math.cos(lat2 * toR) * Math.sin(dLon / 2) ** 2;
+            return R * 2 * Math.asin(Math.min(1, Math.sqrt(a)));
+        }
+
+        async function fetchAircraftNear(lat, lon, distNm) {
+            const url = FLIGHTS_AC_URL_TEMPLATE(lat, lon, distNm);
+            // adsb.lol serves Access-Control-Allow-Origin: * → try direct first to skip the proxy.
+            const bust = (url.includes('?') ? '&' : '?') + '_t=' + Date.now();
+            try {
+                const res = await fetch(url + bust, { cache: 'no-store' });
+                if (res.ok) return await res.json();
+            } catch (_e) { /* fall through to proxy */ }
+            try {
+                return await fetchViaProxy(url);
+            } catch (_e2) {
+                return null;
+            }
+        }
+
+        function normalizeAircraft(raw) {
+            if (!raw || !Array.isArray(raw.ac)) return [];
+            const out = [];
+            for (const a of raw.ac) {
+                const lat = Number(a.lat), lon = Number(a.lon);
+                if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+                const altRaw = a.alt_baro;
+                let altFt = null;
+                if (altRaw === 'ground') altFt = 0;
+                else if (Number.isFinite(Number(altRaw))) altFt = Number(altRaw);
+                const cs = (a.flight || '').trim();
+                out.push({
+                    hex: String(a.hex || '').toLowerCase(),
+                    callsign: cs,
+                    reg: a.r || '',
+                    type: a.t || '',
+                    desc: a.desc || '',
+                    operator: a.ownOp || '',
+                    category: a.category || '',
+                    lat, lon,
+                    altFt,
+                    gsKt: Number.isFinite(Number(a.gs)) ? Number(a.gs) : null,
+                    trackDeg: Number.isFinite(Number(a.track)) ? Number(a.track) : null,
+                    vrFpm: Number.isFinite(Number(a.baro_rate)) ? Number(a.baro_rate) : null,
+                    squawk: a.squawk || '',
+                    onGround: altRaw === 'ground',
+                    ts: Date.now(),
+                });
+            }
+            return out;
+        }
+
+        /**
+         * Route lookup is per-callsign and (in normal traffic) stable for hours.
+         * Cached in flightRouteCache so we never re-fetch the same flight twice.
+         * Returns null while a lookup is in flight or if neither direct nor proxy succeeded.
+         */
+        async function fetchFlightRoute(callsign) {
+            const key = (callsign || '').trim().toUpperCase();
+            if (!key) return null;
+            const now = Date.now();
+            const cached = flightRouteCache[key];
+            if (cached && (now - cached.ts) < FLIGHTS_ROUTE_TTL_MS) return cached;
+            if (flightRouteInFlight.has(key)) return null;
+            flightRouteInFlight.add(key);
+            try {
+                const url = FLIGHTS_ROUTE_URL_TEMPLATE(key);
+                let data = null;
+                try {
+                    const res = await fetch(url, { cache: 'force-cache' });
+                    if (res.ok) data = await res.json();
+                    else if (res.status === 404) data = { response: null };
+                } catch (_e) { /* try proxy */ }
+                if (!data) {
+                    try { data = await fetchViaProxy(url); } catch (_e2) { data = null; }
+                }
+                const fr = data?.response?.flightroute || null;
+                const entry = {
+                    ts: now,
+                    callsign: key,
+                    origin: fr?.origin ? {
+                        iata: fr.origin.iata_code || '',
+                        icao: fr.origin.icao_code || '',
+                        name: fr.origin.name || '',
+                        city: fr.origin.municipality || '',
+                        country: fr.origin.country_name || '',
+                    } : null,
+                    destination: fr?.destination ? {
+                        iata: fr.destination.iata_code || '',
+                        icao: fr.destination.icao_code || '',
+                        name: fr.destination.name || '',
+                        city: fr.destination.municipality || '',
+                        country: fr.destination.country_name || '',
+                    } : null,
+                    airline: fr?.airline ? {
+                        name: fr.airline.name || '',
+                        icao: fr.airline.icao || '',
+                        iata: fr.airline.iata || '',
+                        country: fr.airline.country || '',
+                    } : null,
+                    missing: !fr,
+                };
+                flightRouteCache[key] = entry;
+                return entry;
+            } finally {
+                flightRouteInFlight.delete(key);
+            }
+        }
+
+        function updateFlightTrails(panel, list) {
+            if (!panel._trails) panel._trails = {};
+            const seen = new Set();
+            const now = Date.now();
+            for (const ac of list) {
+                const k = ac.hex || ac.callsign;
+                if (!k) continue;
+                seen.add(k);
+                const arr = panel._trails[k] || [];
+                const last = arr[arr.length - 1];
+                if (!last || last.lat !== ac.lat || last.lon !== ac.lon) {
+                    arr.push({ lat: ac.lat, lon: ac.lon, ts: now });
+                    if (arr.length > FLIGHTS_TRAIL_LIMIT) arr.splice(0, arr.length - FLIGHTS_TRAIL_LIMIT);
+                }
+                panel._trails[k] = arr;
+            }
+            // Drop trails for aircraft that have been out of range > 3 min.
+            const stale = now - 3 * 60 * 1000;
+            for (const k of Object.keys(panel._trails)) {
+                if (!seen.has(k)) {
+                    const arr = panel._trails[k];
+                    if (!arr.length || arr[arr.length - 1].ts < stale) delete panel._trails[k];
+                }
+            }
+        }
+
+        async function refreshFlightPanels() {
+            const ids = state.layout.filter(pid => state.panels[pid]?.type === 'flights');
+            if (!ids.length) return;
+            // Coalesce identical (center, radius) lookups so two FLIGHTS panels at the same spot make one network call.
+            const groups = new Map();
+            for (const pid of ids) {
+                const p = state.panels[pid];
+                const c = getFlightCenter(p);
+                const r = getFlightRadiusNm(p);
+                const key = `${c.lat.toFixed(5)},${c.lon.toFixed(5)},${r}`;
+                if (!groups.has(key)) groups.set(key, { lat: c.lat, lon: c.lon, r, ids: [] });
+                groups.get(key).ids.push(pid);
+            }
+            await Promise.all(Array.from(groups.values()).map(async (g) => {
+                const raw = await fetchAircraftNear(g.lat, g.lon, g.r);
+                const list = raw == null ? null : normalizeAircraft(raw);
+                for (const pid of g.ids) {
+                    const p = state.panels[pid];
+                    if (!p) continue;
+                    if (list === null) {
+                        p._aircraftFailed = true;
+                        continue;
+                    }
+                    p._aircraftFailed = false;
+                    p._aircraft = list;
+                    p._aircraftTs = Date.now();
+                    updateFlightTrails(p, list);
+                }
+            }));
+            // Fire-and-forget route lookups for any callsigns we have not resolved.
+            for (const pid of ids) {
+                const p = state.panels[pid];
+                const list = p && p._aircraft;
+                if (!Array.isArray(list)) continue;
+                for (const ac of list) {
+                    const cs = (ac.callsign || '').trim().toUpperCase();
+                    if (!cs) continue;
+                    const cached = flightRouteCache[cs];
+                    if (cached && (Date.now() - cached.ts) < FLIGHTS_ROUTE_TTL_MS) continue;
+                    void fetchFlightRoute(cs).then(() => {
+                        const stillFlights = state.panels[pid]?.type === 'flights';
+                        if (stillFlights) repaintFlightPanel(pid);
+                    });
+                }
+            }
+        }
+
+        /** Patch just the body + redraw the canvas without rebuilding the whole grid. */
+        function repaintFlightPanel(pid) {
+            const panel = state.panels[pid];
+            if (!panel || panel.type !== 'flights') return;
+            const root = document.getElementById(`panel-${pid}`);
+            if (!root) return;
+            const content = root.querySelector('.panel-content');
+            if (!content) return;
+            const display = getFlightDisplay(panel);
+            if (display === 'list') {
+                content.innerHTML = renderFlights(panel, pid);
+            } else {
+                // MAP: shell stays mounted; just nudge the controller to redraw.
+                const ctrl = flightMapControllers.get(pid);
+                if (ctrl) ctrl.requestDraw();
+                else mountFlightMaps();
+            }
+            // Title detail (counts may have changed).
+            const titleLeft = root.querySelector('.panel-title-left');
+            const typeMeta = PANEL_TYPES[panel.type];
+            if (titleLeft && typeMeta) {
+                titleLeft.innerHTML = `${typeMeta.label}${renderTitleDetail(panel)}`;
+            }
+        }
+
         // --- NASA EONET (Earth events) — parse GeoJSON → list + globe; no API key. ---
         function eonetRingCentroidArea(coords) {
             if (!coords || !coords.length) return { lat: null, lon: null, area: 0 };
@@ -4212,7 +4537,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             try {
                 markQuoteCacheStaleBeforeFetch();
                 renderAllPanels();
-                await Promise.all([refreshQuotes(), refreshNewsPanels(), refreshPredictionPanels(), refreshSeismicPanels(), refreshStormPanels(), refreshEonetPanels()]);
+                await Promise.all([refreshQuotes(), refreshNewsPanels(), refreshPredictionPanels(), refreshSeismicPanels(), refreshStormPanels(), refreshEonetPanels(), refreshFlightPanels()]);
                 renderAllPanels();
                 if (currentDrilldown && currentDrilldown.kind === 'ticker') {
                     const dds = currentDrilldown.symbol;
@@ -4249,6 +4574,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
         function renderAllPanels() {
             disposeGeoGlobes();
+            disposeFlightMaps();
             const grid = document.getElementById('mainGrid');
             grid.innerHTML = '';
             for (const pid of state.layout) {
@@ -4259,6 +4585,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 document.getElementById(`panel-${state.ui.openTray}`).classList.add('tray-open');
             }
             mountGeoGlobes();
+            mountFlightMaps();
         }
 
         function renderPanel(pid) {
@@ -4294,7 +4621,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             // Content
             const content = document.createElement('div');
             const globeBody = PANEL_TYPES[panel.type]?.supportsGeoDisplay && panel.display === 'globe';
-            content.className = 'panel-content' + (globeBody ? ' panel-content--globe' : '');
+            const flightMapBody = panel.type === 'flights' && getFlightDisplay(panel) === 'map';
+            content.className = 'panel-content' + (globeBody || flightMapBody ? ' panel-content--globe' : '');
             content.id = `content-${pid}`;
             content.innerHTML = renderPanelContent(pid);
             root.appendChild(content);
@@ -4337,6 +4665,14 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const labStr = labs.length > 2 ? `${labs.slice(0, 2).join('+')}+…` : labs.join('+');
                 const g = panel.display === 'globe' ? ' · GLOBE' : '';
                 return ` <span style="color:var(--text-secondary);font-weight:400;">· ${escapeHTML(labStr || '—')}${g}</span>`;
+            }
+            if (panel.type === 'flights') {
+                const r = getFlightRadiusNm(panel);
+                const c = getFlightCenter(panel);
+                const mode = getFlightDisplay(panel) === 'map' ? 'MAP' : 'LIST';
+                const count = Array.isArray(panel._aircraft) ? panel._aircraft.length : null;
+                const cnt = count != null ? ` · ${count} ac` : '';
+                return ` <span style="color:var(--text-secondary);font-weight:400;">· ${escapeHTML(c.label)} · ${r}nm · ${mode}${cnt}</span>`;
             }
             if (panel.type === 'calendar' && panel.category && panel.category !== 'all') {
                 const c = CALENDAR_CATEGORIES.find(x => x.key === panel.category);
@@ -4532,6 +4868,42 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 `;
             }
 
+            let flightsSection = '';
+            if (panel.type === 'flights') {
+                const currentR = getFlightRadiusNm(panel);
+                const radiusChips = FLIGHTS_RADII.map(r => {
+                    const active = currentR === r.key ? ' active' : '';
+                    return `<button class="chip${active}" onclick="setFlightRadius('${pid}',${r.key})">${escapeHTML(r.label)}</button>`;
+                }).join('');
+                const display = getFlightDisplay(panel);
+                const mapActive  = display === 'map'  ? ' active' : '';
+                const listActive = display === 'list' ? ' active' : '';
+                const c = getFlightCenter(panel);
+                const inputValue = `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`;
+                flightsSection = `
+                    <div class="tray-row">
+                        <span class="tray-label">CENTER</span>
+                        <input class="flight-center-input" type="text"
+                               id="flight-center-${pid}"
+                               value="${escapeAttr(inputValue)}"
+                               placeholder="lat, lon"
+                               onkeydown="if(event.key==='Enter'){event.preventDefault();commitFlightCenter('${pid}',this.value);this.blur();}"
+                               onblur="commitFlightCenter('${pid}',this.value)">
+                        <span class="tray-hint">${escapeHTML(c.label)} · type <strong>lat, lon</strong> + Enter to re-pin</span>
+                    </div>
+                    <div class="tray-row">
+                        <span class="tray-label">RADIUS</span>
+                        ${radiusChips}
+                        <span class="tray-hint">adsb.lol nearby aircraft · route enrichment via adsbdb.com (callsign → origin / destination / airline)</span>
+                    </div>
+                    <div class="tray-row">
+                        <span class="tray-label">DISPLAY</span>
+                        <button class="chip${mapActive}"  onclick="setFlightDisplay('${pid}','map')"  title="2D top-down map · home at center, range rings, headings, fading trails">MAP</button>
+                        <button class="chip${listActive}" onclick="setFlightDisplay('${pid}','list')" title="Sortable list of nearby aircraft">LIST</button>
+                    </div>
+                `;
+            }
+
             let calendarSection = '';
             if (panel.type === 'calendar') {
                 const current = panel.category || 'all';
@@ -4678,6 +5050,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     ${seismicSection}
                     ${stormsSection}
                     ${eonetSection}
+                    ${flightsSection}
                     ${calendarSection}
                     ${externalAccountSection}
                     ${extHoursSection}
@@ -4702,6 +5075,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 case 'seismic':    return renderSeismic(panel, pid);
                 case 'storms':     return renderStorms(panel, pid);
                 case 'eonet':      return renderEonet(panel, pid);
+                case 'flights':    return renderFlights(panel, pid);
                 case 'externalAccount': return panel.display === 'heatmap'
                     ? renderExternalAccountHeatMap(panel, pid)
                     : renderExternalAccountHoldings(panel, pid);
@@ -7185,6 +7559,449 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         }
 
         // ============================================================
+        // RENDERING — FLIGHTS
+        // ============================================================
+
+        function flightAltClass(altFt) {
+            if (altFt == null) return '';
+            return altFt > 0 && altFt < 5000 ? 'low' : '';
+        }
+
+        function flightAltLabel(ac) {
+            if (ac.onGround) return 'GND';
+            if (ac.altFt == null) return '—';
+            if (ac.altFt >= 18000) return `FL${Math.round(ac.altFt / 100).toString().padStart(3,'0')}`;
+            return `${Math.round(ac.altFt).toLocaleString()}`;
+        }
+
+        function flightHeadingLabel(deg) {
+            if (deg == null) return '—';
+            const dirs = ['N','NE','E','SE','S','SW','W','NW'];
+            const idx = Math.round(((deg % 360 + 360) % 360) / 45) % 8;
+            return `${Math.round(deg).toString().padStart(3,'0')}° ${dirs[idx]}`;
+        }
+
+        function flightRouteShort(route) {
+            if (!route) return '';
+            const o = route.origin;
+            const d = route.destination;
+            if (!o && !d) return '';
+            const oCode = o ? (o.iata || o.icao || '???') : '???';
+            const dCode = d ? (d.iata || d.icao || '???') : '???';
+            return `${oCode} <span class="flight-route-arrow">→</span> ${dCode}`;
+        }
+
+        function flightOperatorShort(ac, route) {
+            const airline = route?.airline?.name;
+            if (airline) return airline;
+            if (ac.operator) return ac.operator;
+            if (ac.callsign) {
+                const m = ac.callsign.match(/^[A-Z]{3}/);
+                if (m) return m[0];
+            }
+            return '';
+        }
+
+        function flightTypeShort(ac) {
+            if (ac.desc) return ac.desc;
+            if (ac.type) return ac.type;
+            return '';
+        }
+
+        function renderFlights(panel, pid) {
+            const list = panel._aircraft;
+            const c = getFlightCenter(panel);
+            if (list == null) {
+                return panel._aircraftFailed
+                    ? `<div class="error-message">adsb.lol FEED UNAVAILABLE — [R] to retry.</div>`
+                    : `<div class="loading">LOADING NEARBY AIRCRAFT…</div>`;
+            }
+            if (getFlightDisplay(panel) === 'map') {
+                return renderFlightMapShell(pid);
+            }
+            // LIST mode — sort by distance from home.
+            const enriched = list.map(ac => {
+                const dNm = nmBetween(c.lat, c.lon, ac.lat, ac.lon);
+                const cs = (ac.callsign || '').trim().toUpperCase();
+                const route = cs ? flightRouteCache[cs] : null;
+                return { ac, dNm, route };
+            }).sort((a, b) => a.dNm - b.dNm);
+            if (!enriched.length) {
+                return `<div class="flight-empty">No aircraft in range right now. ([R] to refresh.)</div>`;
+            }
+            const selHex = panel._selectedHex || '';
+            return enriched.map(({ ac, dNm, route }) => {
+                const cs = ac.callsign || ac.hex.toUpperCase() || '—';
+                const op = flightOperatorShort(ac, route);
+                const tp = flightTypeShort(ac);
+                const rt = flightRouteShort(route);
+                const meta = [op, tp, rt].filter(Boolean).join(' · ');
+                const sel = ac.hex && ac.hex === selHex ? ' selected' : '';
+                const altClass = flightAltClass(ac.altFt);
+                return `
+                    <div class="flight-row${sel}" onclick="selectFlightFromList('${escapeAttr(pid)}','${escapeAttr(ac.hex)}')">
+                        <span class="flight-cs">${escapeHTML(cs)}</span>
+                        <span class="flight-meta">${meta}</span>
+                        <span class="flight-alt ${altClass}">${flightAltLabel(ac)}${ac.altFt != null && !ac.onGround ? ' ft' : ''}</span>
+                        <span class="flight-spd">${ac.gsKt != null ? Math.round(ac.gsKt) + ' kt' : '—'}</span>
+                        <span class="flight-dist">${dNm.toFixed(1)} nm</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderFlightMapShell(pid) {
+            return `
+                <div class="flight-map-root" id="flight-map-root-${pid}">
+                    <canvas class="flight-map-canvas"></canvas>
+                    <div class="flight-map-hint">★ = home · rings = range · ▲ = aircraft (heading) · hover for details · click to pin</div>
+                </div>`;
+        }
+
+        // --- FLIGHTS map runtime (2D top-down, locked-north) ----------------
+
+        const flightMapControllers = new Map();
+
+        function disposeFlightMaps() {
+            flightMapControllers.forEach(c => {
+                try { c.dispose(); } catch (_e) { /* noop */ }
+            });
+            flightMapControllers.clear();
+        }
+
+        function mountFlightMaps() {
+            for (const pid of state.layout) {
+                const panel = state.panels[pid];
+                if (!panel || panel.type !== 'flights' || getFlightDisplay(panel) !== 'map') continue;
+                const root = document.getElementById(`flight-map-root-${pid}`);
+                if (!root) continue;
+                const canvas = root.querySelector('canvas');
+                if (!canvas) continue;
+                if (flightMapControllers.has(pid)) continue;
+                flightMapControllers.set(pid, startFlightMapRuntime(pid, root, canvas));
+            }
+        }
+
+        function startFlightMapRuntime(pid, root, canvas) {
+            const ctx = canvas.getContext('2d');
+            let cssW = 1, cssH = 1, pxPerNm = 1;
+            let tooltip = null;
+            let hoverHex = null;
+            let drawScheduled = false;
+
+            function projection() {
+                const panel = state.panels[pid];
+                const c = getFlightCenter(panel);
+                const r = getFlightRadiusNm(panel);
+                pxPerNm = Math.max(2, Math.min(cssW, cssH) / 2 / r * 0.95);
+                return { c, r, pxPerNm };
+            }
+
+            function llToCanvas(lat, lon, c, pxPerNm) {
+                const dyNm = (lat - c.lat) * 60;
+                const dxNm = (lon - c.lon) * 60 * Math.cos(c.lat * Math.PI / 180);
+                return { x: cssW / 2 + dxNm * pxPerNm, y: cssH / 2 - dyNm * pxPerNm };
+            }
+
+            function canvasToLL(px, py, c, pxPerNm) {
+                const dxNm = (px - cssW / 2) / pxPerNm;
+                const dyNm = -(py - cssH / 2) / pxPerNm;
+                const lat = c.lat + dyNm / 60;
+                const lon = c.lon + dxNm / (60 * Math.cos(c.lat * Math.PI / 180));
+                return { lat, lon };
+            }
+
+            function resize() {
+                const pr = window.devicePixelRatio || 1;
+                const w = canvas.clientWidth || 320;
+                const h = canvas.clientHeight || 320;
+                cssW = w;
+                cssH = h;
+                canvas.width  = Math.max(1, Math.floor(w * pr));
+                canvas.height = Math.max(1, Math.floor(h * pr));
+                ctx.setTransform(pr, 0, 0, pr, 0, 0);
+            }
+
+            function altColor(ac) {
+                if (ac.onGround) return 'rgba(140,140,140,0.85)';
+                if (ac.altFt == null) return 'rgba(0,220,128,0.85)';
+                if (ac.altFt < 5000)  return 'rgba(255,176,0,0.95)';
+                if (ac.altFt < 18000) return 'rgba(0,255,128,0.95)';
+                return 'rgba(0,180,90,0.78)';
+            }
+
+            function drawAircraftIcon(ac, p) {
+                const heading = (ac.trackDeg == null ? 0 : ac.trackDeg) * Math.PI / 180;
+                ctx.save();
+                ctx.translate(p.x, p.y);
+                ctx.rotate(heading);
+                ctx.beginPath();
+                ctx.moveTo(0, -8);
+                ctx.lineTo(6, 6);
+                ctx.lineTo(0, 3);
+                ctx.lineTo(-6, 6);
+                ctx.closePath();
+                ctx.fillStyle = altColor(ac);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            function draw() {
+                drawScheduled = false;
+                const panel = state.panels[pid];
+                if (!panel || panel.type !== 'flights') return;
+                const { c, r, pxPerNm } = projection();
+                ctx.clearRect(0, 0, cssW, cssH);
+
+                // Range rings
+                ctx.strokeStyle = 'rgba(0,255,0,0.18)';
+                ctx.lineWidth = 1;
+                const cx = cssW / 2, cy = cssH / 2;
+                for (let i = 1; i <= 3; i++) {
+                    const radPx = (r * i / 3) * pxPerNm;
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, radPx, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.fillStyle = 'rgba(0,255,0,0.32)';
+                    ctx.font = '9px "IBM Plex Mono", monospace';
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(`${(r * i / 3).toFixed(0)} nm`, cx + 3, cy - radPx);
+                }
+                // Compass cross
+                ctx.strokeStyle = 'rgba(0,255,0,0.12)';
+                ctx.beginPath();
+                ctx.moveTo(cx, 4); ctx.lineTo(cx, cssH - 4);
+                ctx.moveTo(4, cy); ctx.lineTo(cssW - 4, cy);
+                ctx.stroke();
+                ctx.fillStyle = 'rgba(0,255,0,0.5)';
+                ctx.font = '9px "IBM Plex Mono", monospace';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.fillText('N', cx, 4);
+                ctx.textBaseline = 'bottom';
+                ctx.fillText('S', cx, cssH - 4);
+                ctx.textBaseline = 'middle';
+                ctx.textAlign = 'left';
+                ctx.fillText('E', cssW - 8, cy);
+                ctx.textAlign = 'right';
+                ctx.fillText('W', 8, cy);
+
+                // Trails
+                const trails = panel._trails || {};
+                ctx.lineWidth = 1;
+                for (const k of Object.keys(trails)) {
+                    const arr = trails[k];
+                    if (!arr || arr.length < 2) continue;
+                    for (let i = 1; i < arr.length; i++) {
+                        const a = llToCanvas(arr[i-1].lat, arr[i-1].lon, c, pxPerNm);
+                        const b = llToCanvas(arr[i].lat,   arr[i].lon,   c, pxPerNm);
+                        const t = i / arr.length;
+                        ctx.strokeStyle = `rgba(0,255,128,${0.12 + 0.5 * t})`;
+                        ctx.beginPath();
+                        ctx.moveTo(a.x, a.y);
+                        ctx.lineTo(b.x, b.y);
+                        ctx.stroke();
+                    }
+                }
+
+                // Aircraft icons + labels
+                const list = Array.isArray(panel._aircraft) ? panel._aircraft : [];
+                const selHex = panel._selectedHex || '';
+                ctx.font = '10px "IBM Plex Mono", monospace';
+                for (const ac of list) {
+                    const p = llToCanvas(ac.lat, ac.lon, c, pxPerNm);
+                    // Skip aircraft fully outside the visible canvas (slight margin).
+                    if (p.x < -20 || p.y < -20 || p.x > cssW + 20 || p.y > cssH + 20) continue;
+                    drawAircraftIcon(ac, p);
+                    const cs = (ac.callsign || ac.hex.toUpperCase() || '').trim();
+                    if (cs) {
+                        ctx.fillStyle = ac.hex === selHex
+                            ? 'rgba(255,255,255,0.95)'
+                            : (ac.hex === hoverHex ? 'rgba(0,255,128,1)' : 'rgba(0,255,128,0.78)');
+                        ctx.textAlign = 'left';
+                        ctx.textBaseline = 'top';
+                        ctx.fillText(cs, p.x + 7, p.y + 6);
+                    }
+                    if (ac.hex && ac.hex === selHex) {
+                        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+                        ctx.lineWidth = 1.5;
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, 11, 0, Math.PI * 2);
+                        ctx.stroke();
+                    }
+                }
+
+                // Home pin (★)
+                ctx.fillStyle = 'rgba(255,200,0,0.95)';
+                ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+                ctx.lineWidth = 1;
+                drawStar(cx, cy, 5, 7, 3);
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = 'rgba(255,200,0,0.85)';
+                ctx.font = '10px "IBM Plex Mono", monospace';
+                ctx.fillText(c.label, cx + 10, cy);
+            }
+
+            function drawStar(cx, cy, spikes, outerR, innerR) {
+                let rot = -Math.PI / 2;
+                const step = Math.PI / spikes;
+                ctx.beginPath();
+                ctx.moveTo(cx + Math.cos(rot) * outerR, cy + Math.sin(rot) * outerR);
+                for (let i = 0; i < spikes; i++) {
+                    rot += step;
+                    ctx.lineTo(cx + Math.cos(rot) * innerR, cy + Math.sin(rot) * innerR);
+                    rot += step;
+                    ctx.lineTo(cx + Math.cos(rot) * outerR, cy + Math.sin(rot) * outerR);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+            }
+
+            function requestDraw() {
+                if (drawScheduled) return;
+                drawScheduled = true;
+                requestAnimationFrame(draw);
+            }
+
+            function hitTest(mx, my) {
+                const panel = state.panels[pid];
+                if (!panel) return null;
+                const { c, pxPerNm } = projection();
+                const list = Array.isArray(panel._aircraft) ? panel._aircraft : [];
+                let best = null;
+                let bestD2 = 18 * 18;
+                for (const ac of list) {
+                    const p = llToCanvas(ac.lat, ac.lon, c, pxPerNm);
+                    const dx = p.x - mx, dy = p.y - my;
+                    const d2 = dx * dx + dy * dy;
+                    if (d2 < bestD2) { bestD2 = d2; best = ac; }
+                }
+                return best;
+            }
+
+            function ensureTooltip() {
+                if (tooltip && tooltip.isConnected) return tooltip;
+                tooltip = document.createElement('div');
+                tooltip.className = 'flight-map-tooltip';
+                tooltip.style.display = 'none';
+                root.appendChild(tooltip);
+                return tooltip;
+            }
+
+            function tooltipHTMLFor(ac) {
+                const cs = (ac.callsign || ac.hex.toUpperCase() || '').trim();
+                const route = cs ? flightRouteCache[cs] : null;
+                const op = flightOperatorShort(ac, route) || '';
+                const tp = flightTypeShort(ac) || '';
+                const rtLine = (() => {
+                    if (!route) return cs ? '<span style="color:var(--text-dim)">(route lookup pending…)</span>' : '';
+                    if (route.missing) return '<span style="color:var(--text-dim)">No route on file</span>';
+                    const o = route.origin, d = route.destination;
+                    const oTxt = o ? `${o.iata || o.icao || ''} ${o.city || o.name || ''}`.trim() : '';
+                    const dTxt = d ? `${d.iata || d.icao || ''} ${d.city || d.name || ''}`.trim() : '';
+                    return `${escapeHTML(oTxt)} → ${escapeHTML(dTxt)}`;
+                })();
+                const altStr = ac.onGround ? 'On ground' :
+                    ac.altFt != null ? `${flightAltLabel(ac)}${ac.altFt < 18000 ? ' ft' : ''}` : '—';
+                const spdStr = ac.gsKt != null ? `${Math.round(ac.gsKt)} kt` : '';
+                const hdgStr = flightHeadingLabel(ac.trackDeg);
+                const vr = ac.vrFpm != null && Math.abs(ac.vrFpm) > 50
+                    ? `${ac.vrFpm > 0 ? '↑' : '↓'} ${Math.abs(Math.round(ac.vrFpm))} fpm` : '';
+                const regBits = [ac.reg, tp].filter(Boolean).join(' · ');
+                const distNm = nmBetween(getFlightCenter(state.panels[pid]).lat, getFlightCenter(state.panels[pid]).lon, ac.lat, ac.lon);
+                return `
+                    <div style="font-weight:bold;color:var(--text-primary)">${escapeHTML(cs || '—')}</div>
+                    ${op ? `<div>${escapeHTML(op)}</div>` : ''}
+                    ${regBits ? `<div style="color:var(--text-secondary)">${escapeHTML(regBits)}</div>` : ''}
+                    ${rtLine ? `<div>${rtLine}</div>` : ''}
+                    <div style="color:var(--text-dim)">${altStr} · ${spdStr} · ${hdgStr}${vr ? ' · ' + vr : ''}</div>
+                    <div style="color:var(--text-dim)">${distNm.toFixed(1)} nm from ${escapeHTML(getFlightCenter(state.panels[pid]).label)}</div>
+                `;
+            }
+
+            function showTooltipAt(mx, my, ac) {
+                const tt = ensureTooltip();
+                tt.innerHTML = tooltipHTMLFor(ac);
+                tt.style.display = 'block';
+                // Keep tooltip inside the panel.
+                const rootRect = root.getBoundingClientRect();
+                let left = mx + 12;
+                let top  = my + 12;
+                const ttW = tt.offsetWidth || 200;
+                const ttH = tt.offsetHeight || 60;
+                if (left + ttW > rootRect.width  - 4) left = mx - ttW - 12;
+                if (top  + ttH > rootRect.height - 4) top  = my - ttH - 12;
+                tt.style.left = `${Math.max(2, left)}px`;
+                tt.style.top  = `${Math.max(2, top)}px`;
+            }
+
+            function hideTooltip() {
+                if (tooltip) tooltip.style.display = 'none';
+            }
+
+            function onMove(e) {
+                const rect = canvas.getBoundingClientRect();
+                const mx = e.clientX - rect.left;
+                const my = e.clientY - rect.top;
+                const ac = hitTest(mx, my);
+                const newHover = ac ? ac.hex : null;
+                if (newHover !== hoverHex) {
+                    hoverHex = newHover;
+                    requestDraw();
+                }
+                if (ac) showTooltipAt(mx, my, ac);
+                else hideTooltip();
+            }
+
+            function onLeave() {
+                hoverHex = null;
+                hideTooltip();
+                requestDraw();
+            }
+
+            function onClick(e) {
+                const rect = canvas.getBoundingClientRect();
+                const mx = e.clientX - rect.left;
+                const my = e.clientY - rect.top;
+                const ac = hitTest(mx, my);
+                const panel = state.panels[pid];
+                if (!panel) return;
+                if (ac) {
+                    panel._selectedHex = panel._selectedHex === ac.hex ? null : ac.hex;
+                } else {
+                    panel._selectedHex = null;
+                }
+                requestDraw();
+                // Reflect selection if the list mode is later toggled on.
+            }
+
+            const ro = new ResizeObserver(() => { resize(); requestDraw(); });
+            ro.observe(canvas);
+
+            resize();
+            requestDraw();
+
+            canvas.addEventListener('mousemove', onMove);
+            canvas.addEventListener('mouseleave', onLeave);
+            canvas.addEventListener('click', onClick);
+
+            return {
+                requestDraw,
+                dispose() {
+                    ro.disconnect();
+                    canvas.removeEventListener('mousemove', onMove);
+                    canvas.removeEventListener('mouseleave', onLeave);
+                    canvas.removeEventListener('click', onClick);
+                    if (tooltip && tooltip.parentNode) tooltip.parentNode.removeChild(tooltip);
+                    tooltip = null;
+                },
+            };
+        }
+
+        // ============================================================
         // RENDERING — CALENDAR
         // ============================================================
 
@@ -7479,6 +8296,15 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 if (panel.display === 'globe') panel.memory.eonet.display = 'globe';
                 else delete panel.memory.eonet.display;
             }
+            if (oldType === 'flights') {
+                panel.memory.flights = { ...panel.memory.flights };
+                if (Number.isFinite(panel.centerLat)) panel.memory.flights.centerLat = panel.centerLat;
+                if (Number.isFinite(panel.centerLon)) panel.memory.flights.centerLon = panel.centerLon;
+                if (panel.centerLabel) panel.memory.flights.centerLabel = panel.centerLabel;
+                if (Number.isFinite(panel.radiusNm)) panel.memory.flights.radiusNm = panel.radiusNm;
+                if (panel.display === 'list') panel.memory.flights.display = 'list';
+                else delete panel.memory.flights.display;
+            }
             // EXTERNAL ACCOUNT — stash Fidelity CSV snapshot when leaving this type (restore on return).
             if (oldType === 'externalAccount') {
                 ensureExternalBundles(panel);
@@ -7595,6 +8421,19 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 if (panel.category) panel.memory.calendar = { category: panel.category };
                 delete panel.category;
             }
+            if (newType === 'flights') {
+                const mem = panel.memory.flights || {};
+                panel.centerLat = Number.isFinite(mem.centerLat) ? mem.centerLat : FLIGHTS_DEFAULT_CENTER.lat;
+                panel.centerLon = Number.isFinite(mem.centerLon) ? mem.centerLon : FLIGHTS_DEFAULT_CENTER.lon;
+                panel.centerLabel = mem.centerLabel || FLIGHTS_DEFAULT_CENTER.label;
+                panel.radiusNm = FLIGHTS_RADII.some(r => r.key === mem.radiusNm) ? mem.radiusNm : FLIGHTS_DEFAULT_RADIUS;
+                panel.display = mem.display === 'list' ? 'list' : 'map';
+            } else {
+                delete panel.centerLat;
+                delete panel.centerLon;
+                delete panel.centerLabel;
+                delete panel.radiusNm;
+            }
             if (newType === 'externalAccount') {
                 const mem = panel.memory.externalAccount;
                 if (mem?.externalSources?.length) {
@@ -7688,9 +8527,81 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             delete panel._eonetFailed;
             delete panel._eonetPartial;
             delete panel._eonetPartialCategory;
+            delete panel._aircraft;
+            delete panel._aircraftFailed;
+            delete panel._aircraftTs;
+            delete panel._trails;
+            delete panel._selectedHex;
             saveState();
             renderAllPanels();
             refreshAll();
+        }
+
+        function setFlightRadius(pid, radiusNm) {
+            const panel = state.panels[pid];
+            if (!panel || panel.type !== 'flights') return;
+            if (!FLIGHTS_RADII.some(r => r.key === radiusNm)) return;
+            if (panel.radiusNm === radiusNm) return;
+            panel.radiusNm = radiusNm;
+            // Radius change invalidates the prior aircraft list (different bbox).
+            panel._aircraft = null;
+            panel._aircraftFailed = false;
+            panel._trails = {};
+            panel._selectedHex = null;
+            saveState();
+            renderAllPanels();
+            void refreshFlightPanels().then(() => renderAllPanels());
+        }
+
+        function setFlightDisplay(pid, mode) {
+            const panel = state.panels[pid];
+            if (!panel || panel.type !== 'flights') return;
+            const next = mode === 'list' ? 'list' : 'map';
+            if (panel.display === next || (!panel.display && next === 'map')) {
+                panel.display = next;
+                return;
+            }
+            panel.display = next;
+            saveState();
+            renderAllPanels();
+        }
+
+        function commitFlightCenter(pid, raw) {
+            const panel = state.panels[pid];
+            if (!panel || panel.type !== 'flights') return;
+            const txt = String(raw || '').trim();
+            if (!txt) return;
+            // Accept "lat, lon" — also handles paste of Google Maps coords.
+            const m = txt.match(/(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/);
+            if (!m) {
+                updateStatus('FLIGHTS · COULD NOT PARSE COORDS (use "lat, lon")', 'error');
+                return;
+            }
+            const lat = Number(m[1]);
+            const lon = Number(m[2]);
+            if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+                updateStatus('FLIGHTS · LAT/LON OUT OF RANGE', 'error');
+                return;
+            }
+            if (panel.centerLat === lat && panel.centerLon === lon) return;
+            panel.centerLat = lat;
+            panel.centerLon = lon;
+            panel.centerLabel = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+            // Different center = different aircraft set; clear before re-fetch.
+            panel._aircraft = null;
+            panel._aircraftFailed = false;
+            panel._trails = {};
+            panel._selectedHex = null;
+            saveState();
+            renderAllPanels();
+            void refreshFlightPanels().then(() => renderAllPanels());
+        }
+
+        function selectFlightFromList(pid, hex) {
+            const panel = state.panels[pid];
+            if (!panel || panel.type !== 'flights') return;
+            panel._selectedHex = panel._selectedHex === hex ? null : hex;
+            repaintFlightPanel(pid);
         }
 
         function setPredictionFilter(pid, filter) {
