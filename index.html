@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.6.1</title>
+    <title>ROTHBERG TERMINAL v1.6.2</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1206,7 +1206,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.6.1</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.6.2</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -4126,22 +4126,37 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         }
 
         async function fetchAircraftNear(lat, lon, distNm) {
+            let anySucceeded = false;
             for (const src of FLIGHTS_SOURCES) {
                 const raw = await fetchOneFlightSource(src, lat, lon, distNm);
                 if (raw == null) continue;
+                anySucceeded = true;
                 let list;
                 try { list = src.parse(raw); }
                 catch (e) { console.warn(`[FLIGHTS] ${src.name} parse failed:`, e); continue; }
-                if (Array.isArray(list)) {
-                    // Distance-filter for OpenSky (its bbox is square, not a true radius).
-                    return list;
+                if (!Array.isArray(list)) {
+                    console.warn(`[FLIGHTS] ${src.name} parse returned non-array`);
+                    continue;
                 }
+                if (list.length === 0) {
+                    // adsb.lol / adsb.fi feeder network is Europe-heavy and often returns 0 for the US.
+                    // Don't blank the panel — fall through to the next source.
+                    console.info(`[FLIGHTS] ${src.name} returned 0 aircraft, trying next source`);
+                    continue;
+                }
+                console.info(`[FLIGHTS] ${src.name} returned ${list.length} aircraft`);
+                return list;
             }
-            return null;
+            // Every source either failed or genuinely had nothing. Distinguish so the UI shows
+            // "no aircraft in range" vs "feeds unavailable":
+            return anySucceeded ? [] : null;
         }
 
         function normalizeAdsbStyle(raw) {
-            if (!raw || !Array.isArray(raw.ac)) return [];
+            if (!raw || !Array.isArray(raw.ac)) {
+                console.warn('[FLIGHTS] adsb-style response missing ac array; top-level keys:', raw ? Object.keys(raw) : 'null', raw);
+                return [];
+            }
             const out = [];
             for (const a of raw.ac) {
                 const lat = Number(a.lat), lon = Number(a.lon);
@@ -4180,7 +4195,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
          * No aircraft type / operator — those rely on the adsbdb callsign lookup we already do.
          */
         function normalizeOpenSky(raw) {
-            if (!raw || !Array.isArray(raw.states)) return [];
+            if (!raw || !Array.isArray(raw.states)) {
+                console.warn('[FLIGHTS] OpenSky response missing states array; top-level keys:', raw ? Object.keys(raw) : 'null', raw);
+                return [];
+            }
             const out = [];
             for (const s of raw.states) {
                 if (!Array.isArray(s) || s.length < 12) continue;
