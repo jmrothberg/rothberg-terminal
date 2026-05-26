@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.6.2</title>
+    <title>ROTHBERG TERMINAL v1.6.3</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1206,7 +1206,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.6.2</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.6.3</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -4073,10 +4073,20 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             return R * 2 * Math.asin(Math.min(1, Math.sqrt(a)));
         }
 
-        // adsb.lol and adsb.fi share the same v2 JSON shape (forked codebase).
-        // OpenSky returns positional arrays under `states` and uses different units.
-        // Listed in fall-through order: adsb.lol → adsb.fi → OpenSky.
+        // Multiple ADS-B sources, queried in parallel. They overlap heavily — we union
+        // results by ICAO hex and prefer the entry with the richest metadata, so a
+        // single source going dark (or returning empty over a region with no feeder
+        // coverage) never blanks the panel. adsb.lol / adsb.fi / airplanes.live all
+        // share the same v2 JSON shape (forks of the same codebase). OpenSky ships
+        // positional arrays in `states` with SI units (m, m/s) — converted in parse.
         const FLIGHTS_SOURCES = [
+            {
+                // airplanes.live picked up most of the ex-ADS-B Exchange feeder network when ADSBX went paid
+                // in 2023, so US coverage is generally the strongest of the open feeds. Try it first.
+                name: 'airplanes.live',
+                url: (lat, lon, distNm) => `https://api.airplanes.live/v2/point/${lat.toFixed(5)}/${lon.toFixed(5)}/${Math.max(1, Math.round(distNm))}`,
+                parse: (raw) => normalizeAdsbStyle(raw),
+            },
             {
                 name: 'adsb.lol',
                 url: (lat, lon, distNm) => `https://api.adsb.lol/v2/lat/${lat.toFixed(5)}/lon/${lon.toFixed(5)}/dist/${Math.max(1, Math.round(distNm))}`,
@@ -4126,30 +4136,44 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         }
 
         async function fetchAircraftNear(lat, lon, distNm) {
-            let anySucceeded = false;
-            for (const src of FLIGHTS_SOURCES) {
+            // Query every source in parallel and union by ICAO hex. The richest record
+            // for each aircraft wins (priority by source order: airplanes.live first,
+            // OpenSky last — it carries no type/operator metadata).
+            const results = await Promise.all(FLIGHTS_SOURCES.map(async (src) => {
                 const raw = await fetchOneFlightSource(src, lat, lon, distNm);
-                if (raw == null) continue;
-                anySucceeded = true;
-                let list;
-                try { list = src.parse(raw); }
-                catch (e) { console.warn(`[FLIGHTS] ${src.name} parse failed:`, e); continue; }
-                if (!Array.isArray(list)) {
-                    console.warn(`[FLIGHTS] ${src.name} parse returned non-array`);
-                    continue;
+                if (raw == null) return { src: src.name, list: null };
+                try {
+                    const list = src.parse(raw);
+                    if (!Array.isArray(list)) return { src: src.name, list: null };
+                    return { src: src.name, list };
+                } catch (e) {
+                    console.warn(`[FLIGHTS] ${src.name} parse failed:`, e);
+                    return { src: src.name, list: null };
                 }
-                if (list.length === 0) {
-                    // adsb.lol / adsb.fi feeder network is Europe-heavy and often returns 0 for the US.
-                    // Don't blank the panel — fall through to the next source.
-                    console.info(`[FLIGHTS] ${src.name} returned 0 aircraft, trying next source`);
-                    continue;
-                }
-                console.info(`[FLIGHTS] ${src.name} returned ${list.length} aircraft`);
-                return list;
+            }));
+            const succeeded = results.filter(r => r.list != null);
+            const counts = results.map(r => `${r.src}=${r.list == null ? 'fail' : r.list.length}`).join(', ');
+            if (!succeeded.length) {
+                console.warn(`[FLIGHTS] every source failed (${counts})`);
+                return null;
             }
-            // Every source either failed or genuinely had nothing. Distinguish so the UI shows
-            // "no aircraft in range" vs "feeds unavailable":
-            return anySucceeded ? [] : null;
+            const merged = new Map();   // hex → ac (richer entry wins)
+            for (const { list } of succeeded) {
+                for (const ac of list) {
+                    if (!ac.hex) continue;
+                    const prior = merged.get(ac.hex);
+                    if (!prior) { merged.set(ac.hex, ac); continue; }
+                    // Replace prior only if the new record has metadata the prior lacks.
+                    const priorScore = (prior.type ? 1 : 0) + (prior.operator ? 1 : 0) + (prior.reg ? 1 : 0);
+                    const acScore    = (ac.type    ? 1 : 0) + (ac.operator    ? 1 : 0) + (ac.reg    ? 1 : 0);
+                    if (acScore > priorScore) merged.set(ac.hex, ac);
+                }
+            }
+            // OpenSky uses a square bbox, so corners can exceed the requested radius by ~40%.
+            // Trim back to the actual circle so the "25 nm" label is honest.
+            const filtered = Array.from(merged.values()).filter(ac => nmBetween(lat, lon, ac.lat, ac.lon) <= distNm * 1.05);
+            console.info(`[FLIGHTS] merged ${filtered.length} aircraft within ${distNm}nm (${counts})`);
+            return filtered;
         }
 
         function normalizeAdsbStyle(raw) {

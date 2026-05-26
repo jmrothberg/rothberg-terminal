@@ -8,7 +8,7 @@ A single-file, browser-only clone of the Bloomberg Terminal — phosphor-green m
 
 > Click the screenshot or the launch link above to open the live terminal in your browser. No install, no signup, no keys.
 
-**Release:** the live header and browser tab show **v1.6.2** so you can confirm you are on the current build after a refresh or deploy.
+**Release:** the live header and browser tab show **v1.6.3** so you can confirm you are on the current build after a refresh or deploy.
 
 ---
 
@@ -277,7 +277,7 @@ Every number on the screen is from one of these free, public sources. No API key
 | Seismic events | [USGS M4.5+ week feed](https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson) | — | CORS-open GeoJSON, direct fetch |
 | Tropical cyclones | [NOAA NHC `CurrentStorms.json`](https://www.nhc.noaa.gov/CurrentStorms.json) (via proxy) | — | NHC doesn't serve CORS headers; same proxy rotation as Yahoo |
 | Earth events (NASA EONET) | [`api/v3/events/geojson`](https://eonet.gsfc.nasa.gov/api/v3/events/geojson) | — | CORS-open (`Access-Control-Allow-Origin: *`); falls back to the same proxy rotation if a browser blocks direct fetch |
-| Flights (nearby aircraft) | [adsb.lol `v2/lat/.../lon/.../dist/...`](https://api.adsb.lol/) → [adsb.fi `opendata/api/v2/...`](https://adsb.fi/) → [OpenSky `states/all?bbox`](https://opensky-network.org/) | Proxy rotation per source | Multi-source fallback — each is tried direct first then via the shared CORS proxy rotation, so a single feed going dark doesn't blank the panel |
+| Flights (nearby aircraft) | [airplanes.live `v2/point/{lat}/{lon}/{nm}`](https://airplanes.live/) ∪ [adsb.lol](https://api.adsb.lol/) ∪ [adsb.fi](https://adsb.fi/) ∪ [OpenSky `states/all?bbox`](https://opensky-network.org/) | Proxy rotation per source | All four queried in parallel, results unioned by ICAO hex (richer record wins). Each is tried direct first, then via the shared CORS proxy rotation. airplanes.live picked up most of the ex-ADS-B Exchange feeder network when ADSBX went paid in 2023 → strong US coverage. |
 | Flights (origin / destination per callsign) | [adsbdb.com `v0/callsign/{cs}`](https://www.adsbdb.com/) | Proxy rotation | CORS-open route DB; results cached 24h in memory so a single callsign is fetched at most once per session |
 
 ### CORS proxies tried in order
