@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.6.0</title>
+    <title>ROTHBERG TERMINAL v1.6.1</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1206,7 +1206,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.6.0</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.6.1</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1751,10 +1751,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             landslides:   { bright: 'rgba(200,115,255,0.92)', dim: 'rgba(95,55,140,0.5)' },
         };
 
-        // FLIGHTS — adsb.lol nearby aircraft (free, no key, usually CORS-open).
-        // Route enrichment via adsbdb.com (free, no key, CORS-open) — origin/destination per callsign.
-        const FLIGHTS_AC_URL_TEMPLATE = (lat, lon, distNm) =>
-            `https://api.adsb.lol/v2/lat/${lat.toFixed(5)}/lon/${lon.toFixed(5)}/dist/${Math.max(1, Math.round(distNm))}`;
+        // FLIGHTS — nearby ADS-B aircraft. Multi-source fallback (adsb.lol → adsb.fi → OpenSky)
+        // is defined further down (FLIGHTS_SOURCES) so one source going dark doesn't blank the panel.
+        // Route enrichment via adsbdb.com (free, no key) — origin/destination per callsign.
         const FLIGHTS_ROUTE_URL_TEMPLATE = (cs) =>
             `https://api.adsbdb.com/v0/callsign/${encodeURIComponent(cs)}`;
         // Default center: 10 W San Marino Ave, Venetian Islands, Miami Beach FL — overridable per panel.
@@ -4074,22 +4073,74 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             return R * 2 * Math.asin(Math.min(1, Math.sqrt(a)));
         }
 
-        async function fetchAircraftNear(lat, lon, distNm) {
-            const url = FLIGHTS_AC_URL_TEMPLATE(lat, lon, distNm);
-            // adsb.lol serves Access-Control-Allow-Origin: * → try direct first to skip the proxy.
+        // adsb.lol and adsb.fi share the same v2 JSON shape (forked codebase).
+        // OpenSky returns positional arrays under `states` and uses different units.
+        // Listed in fall-through order: adsb.lol → adsb.fi → OpenSky.
+        const FLIGHTS_SOURCES = [
+            {
+                name: 'adsb.lol',
+                url: (lat, lon, distNm) => `https://api.adsb.lol/v2/lat/${lat.toFixed(5)}/lon/${lon.toFixed(5)}/dist/${Math.max(1, Math.round(distNm))}`,
+                parse: (raw) => normalizeAdsbStyle(raw),
+            },
+            {
+                name: 'adsb.fi',
+                url: (lat, lon, distNm) => `https://opendata.adsb.fi/api/v2/lat/${lat.toFixed(5)}/lon/${lon.toFixed(5)}/dist/${Math.max(1, Math.round(distNm))}`,
+                parse: (raw) => normalizeAdsbStyle(raw),
+            },
+            {
+                name: 'opensky',
+                url: (lat, lon, distNm) => {
+                    const dLat = distNm / 60;
+                    const dLon = distNm / (60 * Math.cos(lat * Math.PI / 180));
+                    const lamin = (lat - dLat).toFixed(5);
+                    const lamax = (lat + dLat).toFixed(5);
+                    const lomin = (lon - dLon).toFixed(5);
+                    const lomax = (lon + dLon).toFixed(5);
+                    return `https://opensky-network.org/api/states/all?lamin=${lamin}&lomin=${lomin}&lamax=${lamax}&lomax=${lomax}`;
+                },
+                parse: (raw) => normalizeOpenSky(raw),
+            },
+        ];
+
+        async function fetchOneFlightSource(src, lat, lon, distNm) {
+            const url = src.url(lat, lon, distNm);
             const bust = (url.includes('?') ? '&' : '?') + '_t=' + Date.now();
+            // 1) direct (works when origin sends Access-Control-Allow-Origin)
             try {
                 const res = await fetch(url + bust, { cache: 'no-store' });
-                if (res.ok) return await res.json();
-            } catch (_e) { /* fall through to proxy */ }
+                if (res.ok) {
+                    const json = await res.json();
+                    return json;
+                }
+                console.warn(`[FLIGHTS] ${src.name} direct HTTP ${res.status}`);
+            } catch (e) {
+                console.warn(`[FLIGHTS] ${src.name} direct fetch error:`, e?.message || e);
+            }
+            // 2) proxy rotation
             try {
                 return await fetchViaProxy(url);
-            } catch (_e2) {
+            } catch (e2) {
+                console.warn(`[FLIGHTS] ${src.name} proxy error:`, e2?.message || e2);
                 return null;
             }
         }
 
-        function normalizeAircraft(raw) {
+        async function fetchAircraftNear(lat, lon, distNm) {
+            for (const src of FLIGHTS_SOURCES) {
+                const raw = await fetchOneFlightSource(src, lat, lon, distNm);
+                if (raw == null) continue;
+                let list;
+                try { list = src.parse(raw); }
+                catch (e) { console.warn(`[FLIGHTS] ${src.name} parse failed:`, e); continue; }
+                if (Array.isArray(list)) {
+                    // Distance-filter for OpenSky (its bbox is square, not a true radius).
+                    return list;
+                }
+            }
+            return null;
+        }
+
+        function normalizeAdsbStyle(raw) {
             if (!raw || !Array.isArray(raw.ac)) return [];
             const out = [];
             for (const a of raw.ac) {
@@ -4115,6 +4166,49 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     vrFpm: Number.isFinite(Number(a.baro_rate)) ? Number(a.baro_rate) : null,
                     squawk: a.squawk || '',
                     onGround: altRaw === 'ground',
+                    ts: Date.now(),
+                });
+            }
+            return out;
+        }
+
+        /**
+         * OpenSky returns:
+         *   states[i] = [icao24, callsign, country, time_pos, last_contact, lon, lat,
+         *                baro_alt_m, on_ground, vel_ms, true_track, vert_rate_ms,
+         *                sensors, geo_alt_m, squawk, spi, position_source, category]
+         * No aircraft type / operator — those rely on the adsbdb callsign lookup we already do.
+         */
+        function normalizeOpenSky(raw) {
+            if (!raw || !Array.isArray(raw.states)) return [];
+            const out = [];
+            for (const s of raw.states) {
+                if (!Array.isArray(s) || s.length < 12) continue;
+                const lat = Number(s[6]), lon = Number(s[5]);
+                if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+                const baroAltM = Number(s[7]);
+                const altFt = Number.isFinite(baroAltM) ? Math.round(baroAltM * 3.28084) : null;
+                const velMs = Number(s[9]);
+                const gsKt = Number.isFinite(velMs) ? velMs * 1.94384 : null;
+                const vrMs = Number(s[11]);
+                const vrFpm = Number.isFinite(vrMs) ? Math.round(vrMs * 196.85) : null;
+                const cs = String(s[1] || '').trim();
+                const onGround = s[8] === true;
+                out.push({
+                    hex: String(s[0] || '').toLowerCase(),
+                    callsign: cs,
+                    reg: '',
+                    type: '',
+                    desc: '',
+                    operator: '',
+                    category: '',
+                    lat, lon,
+                    altFt: onGround ? 0 : altFt,
+                    gsKt,
+                    trackDeg: Number.isFinite(Number(s[10])) ? Number(s[10]) : null,
+                    vrFpm,
+                    squawk: String(s[14] || ''),
+                    onGround,
                     ts: Date.now(),
                 });
             }
@@ -4218,8 +4312,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 groups.get(key).ids.push(pid);
             }
             await Promise.all(Array.from(groups.values()).map(async (g) => {
-                const raw = await fetchAircraftNear(g.lat, g.lon, g.r);
-                const list = raw == null ? null : normalizeAircraft(raw);
+                const list = await fetchAircraftNear(g.lat, g.lon, g.r);
                 for (const pid of g.ids) {
                     const p = state.panels[pid];
                     if (!p) continue;
@@ -7613,7 +7706,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             const c = getFlightCenter(panel);
             if (list == null) {
                 return panel._aircraftFailed
-                    ? `<div class="error-message">adsb.lol FEED UNAVAILABLE — [R] to retry.</div>`
+                    ? `<div class="error-message">ADS-B FEEDS UNAVAILABLE (adsb.lol / adsb.fi / OpenSky) — open DevTools console for details, then [R] to retry.</div>`
                     : `<div class="loading">LOADING NEARBY AIRCRAFT…</div>`;
             }
             if (getFlightDisplay(panel) === 'map') {
