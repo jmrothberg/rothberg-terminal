@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.6.4</title>
+    <title>ROTHBERG TERMINAL v1.6.5</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1207,7 +1207,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.6.4</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.6.5</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -4338,6 +4338,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         name: fr.origin.name || '',
                         city: fr.origin.municipality || '',
                         country: fr.origin.country_name || '',
+                        lat: Number(fr.origin.latitude),
+                        lon: Number(fr.origin.longitude),
                     } : null,
                     destination: fr?.destination ? {
                         iata: fr.destination.iata_code || '',
@@ -4345,6 +4347,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         name: fr.destination.name || '',
                         city: fr.destination.municipality || '',
                         country: fr.destination.country_name || '',
+                        lat: Number(fr.destination.latitude),
+                        lon: Number(fr.destination.longitude),
                     } : null,
                     airline: fr?.airline ? {
                         name: fr.airline.name || '',
@@ -7778,6 +7782,36 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             return `${oCode} <span class="flight-route-arrow">→</span> ${dCode}`;
         }
 
+        /**
+         * adsbdb.com returns the *scheduled* route for a callsign, but airlines reuse the same
+         * callsign across multiple legs per day (e.g. AAL1286 may be DCA→BDL most weekdays and
+         * a Miami leg today). If the aircraft is wildly off the great-circle between the
+         * cached origin and destination, the route is almost certainly stale — better to drop
+         * it than print a confidently wrong "DCA → BDL" over Biscayne Bay.
+         *
+         * Triangle-inequality test with 250 nm slack: aircraft within ~250 nm of the segment
+         * passes; aircraft thousands of nm away fails.
+         */
+        function isRoutePlausibleForAc(ac, route) {
+            if (!route || !route.origin || !route.destination) return true;
+            const o = route.origin, d = route.destination;
+            if (!Number.isFinite(o.lat) || !Number.isFinite(o.lon)
+             || !Number.isFinite(d.lat) || !Number.isFinite(d.lon)
+             || !Number.isFinite(ac.lat) || !Number.isFinite(ac.lon)) return true;
+            const dOrigin = nmBetween(ac.lat, ac.lon, o.lat, o.lon);
+            const dDest   = nmBetween(ac.lat, ac.lon, d.lat, d.lon);
+            const segLen  = nmBetween(o.lat, o.lon, d.lat, d.lon);
+            return (dOrigin + dDest) <= segLen + 250;
+        }
+
+        function flightRouteShortValidated(ac, route) {
+            if (!route) return '';
+            if (!isRoutePlausibleForAc(ac, route)) {
+                return `<span style="color:var(--text-dim)" title="adsbdb has DCA→BDL (or similar) for this callsign, but the aircraft is far from that route — airline likely reused the callsign for a different leg.">(callsign reused — route unknown)</span>`;
+            }
+            return flightRouteShort(route);
+        }
+
         function flightOperatorShort(ac, route) {
             const airline = route?.airline?.name;
             if (airline) return airline;
@@ -7821,7 +7855,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const cs = ac.callsign || ac.hex.toUpperCase() || '—';
                 const op = flightOperatorShort(ac, route);
                 const tp = flightTypeShort(ac);
-                const rt = flightRouteShort(route);
+                const rt = flightRouteShortValidated(ac, route);
                 const meta = [op, tp, rt].filter(Boolean).join(' · ');
                 const sel = ac.hex && ac.hex === selHex ? ' selected' : '';
                 const altClass = flightAltClass(ac.altFt);
@@ -8132,6 +8166,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const rtLine = (() => {
                     if (!route) return cs ? '<span style="color:var(--text-dim)">(route lookup pending…)</span>' : '';
                     if (route.missing) return '<span style="color:var(--text-dim)">No route on file</span>';
+                    if (!isRoutePlausibleForAc(ac, route)) {
+                        // adsbdb has a scheduled route for this callsign but the aircraft is far from it —
+                        // airline almost certainly reused the callsign for a different leg today.
+                        return '<span style="color:var(--text-dim)">Callsign reused — actual route unknown</span>';
+                    }
                     const o = route.origin, d = route.destination;
                     const oTxt = o ? `${o.iata || o.icao || ''} ${o.city || o.name || ''}`.trim() : '';
                     const dTxt = d ? `${d.iata || d.icao || ''} ${d.city || d.name || ''}`.trim() : '';
