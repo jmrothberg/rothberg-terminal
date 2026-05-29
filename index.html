@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.7.2</title>
+    <title>ROTHBERG TERMINAL v1.7.3</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1233,7 +1233,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.7.2</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.7.3</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1903,6 +1903,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         let aisRawCount = 0;            // ALL frames received this connection (incl. base stations / errors)
         let aisDataWatchdog = null;     // fires if no frame arrives shortly after subscribing
         let aisLastError = '';          // last error text from an aisstream error frame
+        let aisKeyVerified = false;     // set true once a key test (or live stream) proves the key works
 
         const CALENDAR_CATEGORIES = [
             { key: 'all',    label: 'All' },
@@ -4712,6 +4713,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             // Count EVERY frame (before any filtering) so we can tell "zero data from aisstream"
             // apart from "data arriving but filtered out". The watchdog/diagnostics rely on this.
             aisRawCount++;
+            aisKeyVerified = true;   // any frame at all proves the key + subscription are valid
             if (aisDataWatchdog) { clearTimeout(aisDataWatchdog); aisDataWatchdog = null; }
             if (aisRawCount === 1) console.info('[VESSELS] first raw frame:', JSON.stringify(msg).slice(0, 240));
             // aisstream error / non-vessel frames have no MetaData — surface them instead of
@@ -5532,7 +5534,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                                placeholder="paste free aisstream.io API key"
                                onkeydown="if(event.key==='Enter'){event.preventDefault();setAisStreamKey(this.value);this.blur();}"
                                onblur="setAisStreamKey(this.value)">
-                        <span class="tray-hint">${escapeHTML(keyStatus)} · free key from <a href="https://aisstream.io/" target="_blank" rel="noopener">aisstream.io</a> (signup, no payment). Shared by all VESSELS panels, stored locally in your browser.</span>
+                        <button type="button" class="header-btn" onclick="testAisStreamKey()" title="Open a throwaway whole-world subscription for ~8s and report whether the key streams any data. Separates a bad/inactive key from an empty local area.">TEST KEY</button>
+                        <span class="tray-hint">${escapeHTML(keyStatus)} · free key from <a href="https://aisstream.io/" target="_blank" rel="noopener">aisstream.io</a> (signup, no payment). <strong>TEST KEY</strong> checks it against the whole world. Shared by all VESSELS panels, stored locally in your browser.</span>
                     </div>
                 `;
             }
@@ -8801,7 +8804,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             if (aisStatus === 'connecting') return `<div class="loading">CONNECTING TO AIS STREAM…</div>`;
             if (aisStatus === 'subscribed') return `<div class="loading">CONNECTED — waiting for AIS data in this area…</div>`;
             if (aisStatus === 'nodata') {
-                return `<div class="error-message">CONNECTED, but aisstream sent <strong>no data</strong>. The socket and subscription are fine — this almost always means the <strong>API key isn't active yet</strong>. Sign in at <a href="https://aisstream.io/" target="_blank" rel="noopener">aisstream.io</a>, confirm your email / account, make sure the key is enabled, then re-paste it. (Less commonly: a temporary aisstream outage.)</div>`;
+                if (aisKeyVerified) {
+                    // Key proven good elsewhere (TEST KEY or an earlier stream) — so this is local coverage.
+                    return `<div class="error-message">CONNECTED &amp; key verified, but <strong>no AIS coverage for this area</strong> right now. aisstream relies on volunteer receivers, so open water / quiet coasts can be empty — try a busier area (Dover Strait, Singapore Strait, English Channel) or a larger radius.</div>`;
+                }
+                return `<div class="error-message">CONNECTED, but aisstream sent <strong>no data</strong>. The socket and subscription are fine — this almost always means the <strong>API key isn't active yet</strong>. Use <strong>TEST KEY</strong> in the tray to check it against the whole world, or sign in at <a href="https://aisstream.io/" target="_blank" rel="noopener">aisstream.io</a> and confirm your email / account, then re-paste the key.</div>`;
             }
             if (aisStatus === 'disconnected' || aisStatus === 'error') return `<div class="error-message">AIS STREAM DISCONNECTED — reconnecting… (check the key if this persists).</div>`;
             return null;
@@ -9653,14 +9660,67 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         }
 
         function setAisStreamKey(raw) {
-            const key = String(raw || '').trim();
+            // Strip whitespace and any stray wrapping quotes from a paste.
+            const key = String(raw || '').trim().replace(/^["']|["']$/g, '').trim();
             state.config = state.config || {};
             if (state.config.aisStreamKey === key) return;
             state.config.aisStreamKey = key;
             // Key change invalidates the current stream; drop cached vessels and reconnect.
             aisVessels.clear();
+            aisKeyVerified = false;
             saveState();
             renderAllPanels();   // ensureAisConnection picks up the new key
+        }
+
+        /**
+         * Test the stored key against a whole-world bounding box. A valid key floods data
+         * instantly, so this cleanly separates "bad / inactive key" from "no ships in my area".
+         * Pauses the live panel connection during the test to avoid aisstream's per-key
+         * concurrent-connection limit, then restores it.
+         */
+        function testAisStreamKey() {
+            const key = getAisKey();
+            if (!key) { updateStatus('VESSELS · paste a key first', 'error'); return; }
+            updateStatus('VESSELS · testing key against whole world…', 'normal');
+            teardownAisConnection();
+            aisStatus = 'connecting';
+            let ws, done = false, raw = 0, vessels = 0, errText = '';
+            const finish = (verdict, ok) => {
+                if (done) return;
+                done = true;
+                clearTimeout(timer);
+                try { ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null; ws.close(); } catch (_e) {}
+                aisKeyVerified = ok && raw > 0;
+                updateStatus(verdict, ok ? 'normal' : 'error');
+                console.info('[VESSELS] key test result:', verdict, { raw, vessels, errText });
+                ensureAisConnection();   // restore the normal panel stream
+                for (const pid of state.layout) {
+                    if (state.panels[pid]?.type === 'vessels') repaintVesselPanel(pid);
+                }
+            };
+            try { ws = new WebSocket(AIS_WS_URL); }
+            catch (e) { finish('VESSELS · key test could not open a socket', false); return; }
+            ws.onopen = () => { try { ws.send(JSON.stringify({ APIKey: key, BoundingBoxes: [[[-90, -180], [90, 180]]] })); } catch (_e) {} };
+            ws.onmessage = (ev) => {
+                raw++;
+                try {
+                    const m = JSON.parse(ev.data);
+                    if (!m.MetaData) { const e = m.error || m.Error || m.message; if (typeof e === 'string') errText = e; }
+                    else vessels++;
+                } catch (_e) {}
+                if (raw >= 25 && !errText) finish(`VESSELS · KEY OK — streaming globally (${raw}+ msgs). If your area is empty it's local coverage, not the key.`, true);
+            };
+            ws.onerror = () => {};
+            ws.onclose = (ev) => {
+                if (done) return;
+                if (errText) finish(`VESSELS · KEY REJECTED: ${errText}`, false);
+                else finish(`VESSELS · key test: socket closed (code ${ev.code}) with no data — key likely invalid/inactive`, false);
+            };
+            const timer = setTimeout(() => {
+                if (errText) finish(`VESSELS · KEY REJECTED: ${errText}`, false);
+                else if (raw > 0) finish(`VESSELS · KEY OK — ${raw} global msgs in 8s (${vessels} vessels). Your area is just quiet on aisstream.`, true);
+                else finish('VESSELS · KEY TEST FAILED — 0 messages worldwide in 8s. The key is not active: confirm your account/email at aisstream.io, then re-paste.', false);
+            }, 8000);
         }
 
         function selectVesselFromList(pid, mmsi) {
