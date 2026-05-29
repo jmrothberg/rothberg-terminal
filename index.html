@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.7.5</title>
+    <title>ROTHBERG TERMINAL v1.7.6</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1233,7 +1233,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.7.5</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.7.6</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -5398,18 +5398,16 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 }).join('');
                 const listActive = (panel.display !== 'globe' && panel.display !== 'map') ? ' active' : '';
                 const globeActive = panel.display === 'globe' ? ' active' : '';
-                const mapActive = panel.display === 'map' ? ' active' : '';
                 seismicSection = `
                     <div class="tray-row">
                         <span class="tray-label">MIN MAG</span>
                         ${chips}
-                        <span class="tray-hint">USGS M4.5+ feed · last 7 days</span>
+                        <span class="tray-hint">USGS M4.5+ feed · last 7 days · <em>tap any dot on the GLOBE to drill into a map of that area</em></span>
                     </div>
                     <div class="tray-row">
                         <span class="tray-label">DISPLAY</span>
                         <button class="chip${listActive}" onclick="setGeoPanelDisplay('${pid}','list')" title="Event list">LIST</button>
-                        <button class="chip${mapActive}" onclick="setGeoPanelDisplay('${pid}','map')" title="2D map · range rings, tap an event">MAP</button>
-                        <button class="chip${globeActive}" onclick="setGeoPanelDisplay('${pid}','globe')" title="Rotating globe · USGS lat/lon">GLOBE</button>
+                        <button class="chip${globeActive}" onclick="setGeoPanelDisplay('${pid}','globe')" title="Rotating globe · tap a dot to open a regional map">GLOBE</button>
                     </div>
                     ${geoMapTrayRows(pid, panel)}
                 `;
@@ -5425,18 +5423,16 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 }).join('');
                 const listActiveS = (panel.display !== 'globe' && panel.display !== 'map') ? ' active' : '';
                 const globeActiveS = panel.display === 'globe' ? ' active' : '';
-                const mapActiveS = panel.display === 'map' ? ' active' : '';
                 stormsSection = `
                     <div class="tray-row">
                         <span class="tray-label">BASIN</span>
                         ${chips}
-                        <span class="tray-hint">NOAA NHC · active cyclones only</span>
+                        <span class="tray-hint">NOAA NHC · active cyclones only · <em>tap a storm on the GLOBE to open a regional map</em></span>
                     </div>
                     <div class="tray-row">
                         <span class="tray-label">DISPLAY</span>
                         <button class="chip${listActiveS}" onclick="setGeoPanelDisplay('${pid}','list')" title="Storm list">LIST</button>
-                        <button class="chip${mapActiveS}" onclick="setGeoPanelDisplay('${pid}','map')" title="2D map · range rings, tap a storm">MAP</button>
-                        <button class="chip${globeActiveS}" onclick="setGeoPanelDisplay('${pid}','globe')" title="Rotating globe · NHC lat/lon">GLOBE</button>
+                        <button class="chip${globeActiveS}" onclick="setGeoPanelDisplay('${pid}','globe')" title="Rotating globe · tap a storm to open a regional map">GLOBE</button>
                     </div>
                     ${geoMapTrayRows(pid, panel)}
                 `;
@@ -5452,18 +5448,16 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 }).join('');
                 const listActiveE = (panel.display !== 'globe' && panel.display !== 'map') ? ' active' : '';
                 const globeActiveE = panel.display === 'globe' ? ' active' : '';
-                const mapActiveE = panel.display === 'map' ? ' active' : '';
                 eonetSection = `
                     <div class="tray-row">
                         <span class="tray-label">FILTER</span>
                         ${chips}
-                        <span class="tray-hint">NASA EONET open events · 14d · no API key · globe dot = NASA size when given, else footprint+recency (not Richter). <strong>Multi:</strong> Shift+click / ⌘+click chips (or long-press ~0.5s on touch) — list shows events in <em>any</em> selected category.</span>
+                        <span class="tray-hint">NASA EONET open events · 14d · no API key · globe dot = NASA size when given, else footprint+recency (not Richter). <strong>Multi:</strong> Shift+click / ⌘+click chips (or long-press ~0.5s on touch) — list shows events in <em>any</em> selected category. <em>Tap a dot on the GLOBE to open a regional map.</em></span>
                     </div>
                     <div class="tray-row">
                         <span class="tray-label">DISPLAY</span>
                         <button class="chip${listActiveE}" onclick="setGeoPanelDisplay('${pid}','list')" title="Event list">LIST</button>
-                        <button class="chip${mapActiveE}" onclick="setGeoPanelDisplay('${pid}','map')" title="2D map · range rings, tap an event">MAP</button>
-                        <button class="chip${globeActiveE}" onclick="setGeoPanelDisplay('${pid}','globe')" title="Rotating globe · polygon→centroid">GLOBE</button>
+                        <button class="chip${globeActiveE}" onclick="setGeoPanelDisplay('${pid}','globe')" title="Rotating globe · tap a dot to open a regional map">GLOBE</button>
                     </div>
                     ${geoMapTrayRows(pid, panel)}
                 `;
@@ -7883,6 +7877,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             let zoom = 1;
             let dragging = false;
             let lx = 0, ly = 0;
+            let downX = 0, downY = 0, downT = 0;
+            let lastFrameDots = [];   // {cx, cy, pt} from last frame, for tap hit-testing
 
             function resize() {
                 const pr = window.devicePixelRatio || 1;
@@ -7894,35 +7890,59 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 ctx.setTransform(pr, 0, 0, pr, 0, 0);
             }
 
-            function onDown(e) {
+            // Pointer events handle mouse + touch + pen uniformly; lets iPad drag the
+            // globe AND tap a dot. setPointerCapture keeps drag alive outside the canvas.
+            function onPointerDown(e) {
                 dragging = true;
-                lx = e.clientX;
-                ly = e.clientY;
+                downX = e.clientX; downY = e.clientY; downT = performance.now();
+                lx = e.clientX; ly = e.clientY;
+                try { canvas.setPointerCapture(e.pointerId); } catch (_e) {}
             }
-            function onMove(e) {
+            function onPointerMove(e) {
                 if (!dragging) return;
                 const dx = e.clientX - lx, dy = e.clientY - ly;
-                lx = e.clientX;
-                ly = e.clientY;
+                lx = e.clientX; ly = e.clientY;
                 yawOff += dx * 0.005;
                 pitchOff = Math.max(-1.15, Math.min(1.15, pitchOff - dy * 0.005));
             }
-            function onUp() { dragging = false; }
+            function onPointerUp(e) {
+                if (!dragging) return;
+                dragging = false;
+                try { canvas.releasePointerCapture(e.pointerId); } catch (_e) {}
+                // Tap (small movement, short time) → hit-test the last-frame dots and drill in.
+                const elapsed = performance.now() - downT;
+                const moved = Math.hypot(e.clientX - downX, e.clientY - downY);
+                if (moved < 6 && elapsed < 400) {
+                    const rect = canvas.getBoundingClientRect();
+                    const mx = e.clientX - rect.left;
+                    const my = e.clientY - rect.top;
+                    let best = null, bestD = 22 * 22;
+                    for (const o of lastFrameDots) {
+                        const ddx = o.cx - mx, ddy = o.cy - my;
+                        const d2 = ddx * ddx + ddy * ddy;
+                        if (d2 < bestD) { bestD = d2; best = o; }
+                    }
+                    if (best) openGeoEventDrilldown(pid, best.pt);
+                }
+            }
             function onWheel(e) {
                 e.preventDefault();
                 zoom = Math.max(0.65, Math.min(1.5, zoom + (e.deltaY < 0 ? 0.07 : -0.07)));
             }
 
-            canvas.addEventListener('mousedown', onDown);
-            window.addEventListener('mousemove', onMove);
-            window.addEventListener('mouseup', onUp);
+            canvas.style.touchAction = 'none';
+            canvas.addEventListener('pointerdown', onPointerDown);
+            canvas.addEventListener('pointermove', onPointerMove);
+            canvas.addEventListener('pointerup', onPointerUp);
+            canvas.addEventListener('pointercancel', onPointerUp);
             canvas.addEventListener('wheel', onWheel, { passive: false });
 
             function dispose() {
                 cancelAnimationFrame(raf);
-                canvas.removeEventListener('mousedown', onDown);
-                window.removeEventListener('mousemove', onMove);
-                window.removeEventListener('mouseup', onUp);
+                canvas.removeEventListener('pointerdown', onPointerDown);
+                canvas.removeEventListener('pointermove', onPointerMove);
+                canvas.removeEventListener('pointerup', onPointerUp);
+                canvas.removeEventListener('pointercancel', onPointerUp);
                 canvas.removeEventListener('wheel', onWheel);
             }
 
@@ -8005,6 +8025,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     projected.push({ cx: cx + u, cy: cy + v, depth, pt });
                 }
                 projected.sort((a, b) => a.depth - b.depth);
+                lastFrameDots = projected;
                 for (const o of projected) {
                     const pt = o.pt;
                     let r, fill;
@@ -8517,6 +8538,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             const inputValue = looksLatLon ? `${c.lat.toFixed(4)}, ${c.lon.toFixed(4)}` : (c.label || `${c.lat.toFixed(4)}, ${c.lon.toFixed(4)}`);
             return `
                     <div class="tray-row">
+                        <span class="tray-label">DRILL</span>
+                        <button type="button" class="header-btn" onclick="exitGeoEventDrilldown('${pid}')" title="Return to the rotating globe">← BACK TO GLOBE</button>
+                        <span class="tray-hint">Map drill-down from the globe. Tap a different dot on the globe to drill into another region; use RADIUS chips to zoom in/out.</span>
+                    </div>
+                    <div class="tray-row">
                         <span class="tray-label">CENTER</span>
                         <input class="flight-center-input" type="text" id="geo-center-${pid}" value="${escapeAttr(inputValue)}"
                                placeholder="place / region — or lat, lon"
@@ -8527,7 +8553,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     <div class="tray-row">
                         <span class="tray-label">RADIUS</span>
                         ${radiusChips}
-                        <span class="tray-hint">Map range rings · tap an event icon for details</span>
+                        <span class="tray-hint">Zoom · tap an event icon for details</span>
                     </div>`;
         }
 
@@ -10182,6 +10208,31 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             if (!panel || !PANEL_TYPES[panel.type]?.supportsGeoDisplay) return;
             if (!EVENT_MAP_RADII.some(x => x.key === r)) return;
             panel.geoRadiusNm = r;
+            saveState();
+            renderAllPanels();
+        }
+
+        // Tap a globe dot → switch the panel into MAP drill-down mode centered on that
+        // event, with a sensible default zoom. Title + tray reflect the drill state.
+        function openGeoEventDrilldown(pid, pt) {
+            const panel = state.panels[pid];
+            if (!panel || !PANEL_TYPES[panel.type]?.supportsGeoDisplay || !pt) return;
+            if (!Number.isFinite(pt.lat) || !Number.isFinite(pt.lon)) return;
+            panel.display = 'map';
+            panel.geoCenterLat = pt.lat;
+            panel.geoCenterLon = pt.lon;
+            panel.geoCenterLabel = geoEventLabel(pt) || `${pt.lat.toFixed(2)}, ${pt.lon.toFixed(2)}`;
+            if (!Number.isFinite(panel.geoRadiusNm)) panel.geoRadiusNm = 500;
+            panel._selectedGeoId = pt.id || null;
+            saveState();
+            renderAllPanels();
+        }
+
+        function exitGeoEventDrilldown(pid) {
+            const panel = state.panels[pid];
+            if (!panel || !PANEL_TYPES[panel.type]?.supportsGeoDisplay) return;
+            panel.display = 'globe';
+            panel._selectedGeoId = null;
             saveState();
             renderAllPanels();
         }
