@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.7.4</title>
+    <title>ROTHBERG TERMINAL v1.7.5</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1233,7 +1233,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.7.4</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.7.5</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1811,6 +1811,30 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         // Map radius nm → tile zoom that puts ~3-5 tiles across the canvas.
         // Higher zoom = more detail per tile, but more tiles to fetch.
         const FLIGHTS_TILE_ZOOM_BY_RADIUS = { 5: 13, 10: 12, 25: 11, 50: 10, 100: 9 };
+        // Generic tile zoom for any radius (the table above only covers 5-100nm; event
+        // panels use larger radii). Picks z so the view diameter roughly fills the canvas.
+        function tileZoomForRadius(r) {
+            if (r <= 6) return 13;
+            if (r <= 12) return 12;
+            if (r <= 30) return 11;
+            if (r <= 60) return 10;
+            if (r <= 120) return 9;
+            if (r <= 300) return 7;
+            if (r <= 600) return 6;
+            if (r <= 1200) return 5;
+            if (r <= 2500) return 4;
+            return 3;
+        }
+        // SEISMIC / TROPICAL CYCLONES / EARTH EVENTS — MAP display (regional/global feeds,
+        // so larger range rings than planes/ships). Center is geocodable like the others.
+        const EVENT_MAP_RADII = [
+            { key: 250,  label: '250 nm'  },
+            { key: 500,  label: '500 nm'  },
+            { key: 1000, label: '1000 nm' },
+            { key: 2000, label: '2000 nm' },
+        ];
+        const EVENT_MAP_DEFAULT_RADIUS = 1000;
+        const EVENT_MAP_DEFAULT_CENTER = { lat: 20, lon: 0, label: 'Lat 20, Lon 0' };
         // Process-wide tile cache (per session). Browser HTTP cache handles longer-term
         // persistence; this map skips creating new Image() elements on every redraw and
         // avoids re-fetching the same tile when the panel re-mounts after a refresh.
@@ -5178,9 +5202,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             // Content
             const content = document.createElement('div');
             const globeBody = PANEL_TYPES[panel.type]?.supportsGeoDisplay && panel.display === 'globe';
+            const geoMapBody = PANEL_TYPES[panel.type]?.supportsGeoDisplay && panel.display === 'map';
             const flightMapBody = panel.type === 'flights' && getFlightDisplay(panel) === 'map';
             const vesselMapBody = panel.type === 'vessels' && getVesselDisplay(panel) === 'map';
-            content.className = 'panel-content' + (globeBody || flightMapBody || vesselMapBody ? ' panel-content--globe' : '');
+            content.className = 'panel-content' + (globeBody || geoMapBody || flightMapBody || vesselMapBody ? ' panel-content--globe' : '');
             content.id = `content-${pid}`;
             content.innerHTML = renderPanelContent(pid);
             root.appendChild(content);
@@ -5207,21 +5232,21 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
             if (panel.type === 'seismic') {
                 const m = typeof panel.minMag === 'number' ? panel.minMag : 5.5;
-                const g = panel.display === 'globe' ? ' · GLOBE' : '';
+                const g = geoDisplaySuffix(panel);
                 return ` <span style="color:var(--text-secondary);font-weight:400;">· M${m.toFixed(1)}+${g}</span>`;
             }
             if (panel.type === 'storms') {
                 const keys = getStormBasinKeys(panel);
                 const labs = keys.map((k) => (STORM_BASINS.find((x) => x.key === k) || {}).label || k);
                 const labStr = labs.length > 2 ? `${labs.slice(0, 2).join('+')}+…` : labs.join('+');
-                const g = panel.display === 'globe' ? ' · GLOBE' : '';
+                const g = geoDisplaySuffix(panel);
                 return ` <span style="color:var(--text-secondary);font-weight:400;">· ${escapeHTML(labStr || panel.basin)}${g}</span>`;
             }
             if (panel.type === 'eonet') {
                 const keys = getEonetActiveFilterKeys(panel);
                 const labs = keys.map((k) => (EONET_FILTER_CHIPS.find((x) => x.key === k) || {}).label || k);
                 const labStr = labs.length > 2 ? `${labs.slice(0, 2).join('+')}+…` : labs.join('+');
-                const g = panel.display === 'globe' ? ' · GLOBE' : '';
+                const g = geoDisplaySuffix(panel);
                 return ` <span style="color:var(--text-secondary);font-weight:400;">· ${escapeHTML(labStr || '—')}${g}</span>`;
             }
             if (panel.type === 'flights') {
@@ -5371,8 +5396,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     const active = current === m.key ? ' active' : '';
                     return `<button class="chip${active}" onclick="setSeismicMinMag('${pid}',${m.key})">${m.label}</button>`;
                 }).join('');
-                const listActive = panel.display !== 'globe' ? ' active' : '';
+                const listActive = (panel.display !== 'globe' && panel.display !== 'map') ? ' active' : '';
                 const globeActive = panel.display === 'globe' ? ' active' : '';
+                const mapActive = panel.display === 'map' ? ' active' : '';
                 seismicSection = `
                     <div class="tray-row">
                         <span class="tray-label">MIN MAG</span>
@@ -5382,8 +5408,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     <div class="tray-row">
                         <span class="tray-label">DISPLAY</span>
                         <button class="chip${listActive}" onclick="setGeoPanelDisplay('${pid}','list')" title="Event list">LIST</button>
+                        <button class="chip${mapActive}" onclick="setGeoPanelDisplay('${pid}','map')" title="2D map · range rings, tap an event">MAP</button>
                         <button class="chip${globeActive}" onclick="setGeoPanelDisplay('${pid}','globe')" title="Rotating globe · USGS lat/lon">GLOBE</button>
                     </div>
+                    ${geoMapTrayRows(pid, panel)}
                 `;
             }
 
@@ -5395,8 +5423,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     const tit = escapeAttr(`Shift+click or ⌘+click (or long-press ~0.5s) for multiple basins — list/globe show storms in any selected basin`);
                     return `<button type="button" class="chip${active}" onclick="stormBasinChipClick(event,'${escapeAttr(pid)}','${escapeAttr(b.key)}')" onpointerdown="stormBasinChipPointerDown(event,'${escapeAttr(pid)}','${escapeAttr(b.key)}')" onpointerup="stormBasinChipPointerUp('${escapeAttr(pid)}')" onpointercancel="stormBasinChipPointerUp('${escapeAttr(pid)}')" title="${tit}">${escapeHTML(b.label)}</button>`;
                 }).join('');
-                const listActiveS = panel.display !== 'globe' ? ' active' : '';
+                const listActiveS = (panel.display !== 'globe' && panel.display !== 'map') ? ' active' : '';
                 const globeActiveS = panel.display === 'globe' ? ' active' : '';
+                const mapActiveS = panel.display === 'map' ? ' active' : '';
                 stormsSection = `
                     <div class="tray-row">
                         <span class="tray-label">BASIN</span>
@@ -5406,8 +5435,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     <div class="tray-row">
                         <span class="tray-label">DISPLAY</span>
                         <button class="chip${listActiveS}" onclick="setGeoPanelDisplay('${pid}','list')" title="Storm list">LIST</button>
+                        <button class="chip${mapActiveS}" onclick="setGeoPanelDisplay('${pid}','map')" title="2D map · range rings, tap a storm">MAP</button>
                         <button class="chip${globeActiveS}" onclick="setGeoPanelDisplay('${pid}','globe')" title="Rotating globe · NHC lat/lon">GLOBE</button>
                     </div>
+                    ${geoMapTrayRows(pid, panel)}
                 `;
             }
 
@@ -5419,8 +5450,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     const tit = escapeAttr(`${c.title} · Shift+click or ⌘+click (or long-press ~0.5s) for multiple filters`);
                     return `<button type="button" class="chip${active}" onclick="eonetChipClick(event,'${escapeAttr(pid)}','${escapeAttr(c.key)}')" onpointerdown="eonetChipPointerDown(event,'${escapeAttr(pid)}','${escapeAttr(c.key)}')" onpointerup="eonetChipPointerUp('${escapeAttr(pid)}')" onpointercancel="eonetChipPointerUp('${escapeAttr(pid)}')" title="${tit}">${escapeHTML(c.label)}</button>`;
                 }).join('');
-                const listActiveE = panel.display !== 'globe' ? ' active' : '';
+                const listActiveE = (panel.display !== 'globe' && panel.display !== 'map') ? ' active' : '';
                 const globeActiveE = panel.display === 'globe' ? ' active' : '';
+                const mapActiveE = panel.display === 'map' ? ' active' : '';
                 eonetSection = `
                     <div class="tray-row">
                         <span class="tray-label">FILTER</span>
@@ -5430,8 +5462,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     <div class="tray-row">
                         <span class="tray-label">DISPLAY</span>
                         <button class="chip${listActiveE}" onclick="setGeoPanelDisplay('${pid}','list')" title="Event list">LIST</button>
+                        <button class="chip${mapActiveE}" onclick="setGeoPanelDisplay('${pid}','map')" title="2D map · range rings, tap an event">MAP</button>
                         <button class="chip${globeActiveE}" onclick="setGeoPanelDisplay('${pid}','globe')" title="Rotating globe · polygon→centroid">GLOBE</button>
                     </div>
+                    ${geoMapTrayRows(pid, panel)}
                 `;
             }
 
@@ -7752,7 +7786,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 return events
                     .filter(e => e.mag != null && e.mag >= minMag && e.lat != null && e.lon != null)
                     .slice(0, 100)
-                    .map(e => ({ lat: e.lat, lon: e.lon, mag: e.mag, kind: 'quake' }));
+                    .map((e, i) => ({ lat: e.lat, lon: e.lon, mag: e.mag, kind: 'quake', id: e.id || `q${i}`, raw: e }));
             }
             if (panel.type === 'storms') {
                 const storms = panel._storms;
@@ -7761,13 +7795,15 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const filtered = basinKeys.includes('all') ? storms : storms.filter(s => basinKeys.includes(s.basin));
                 return filtered
                     .filter(s => s.lat != null && s.lon != null)
-                    .map(s => ({
+                    .map((s, i) => ({
                         lat: s.lat,
                         lon: s.lon,
                         kind: 'storm',
                         intensity: s.intensity,
                         classification: s.classification,
                         name: s.name,
+                        id: s.id || `s${i}`,
+                        raw: s,
                     }));
             }
             if (panel.type === 'eonet') {
@@ -7801,6 +7837,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         displayScore: ev.displayScore,
                         cat: ev.categoryPrimary,
                         dotNorm: t,
+                        id: ev.id || `${ev.lat},${ev.lon}`,
+                        raw: ev,
                     };
                 });
             }
@@ -8025,13 +8063,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         // ============================================================
 
         function renderSeismic(panel, pid) {
-            if (panel.display === 'globe') {
+            if (panel.display === 'globe' || panel.display === 'map') {
                 if (panel._events == null) {
                     return panel._eventsFailed
                         ? `<div class="error-message">USGS FEED UNAVAILABLE — [R] to retry.</div>`
                         : `<div class="loading">LOADING SEISMIC EVENTS…</div>`;
                 }
-                return renderGeoGlobeShell(pid);
+                return panel.display === 'map' ? renderEventMapShell(pid) : renderGeoGlobeShell(pid);
             }
             const events = panel._events;
             const minMag = typeof panel.minMag === 'number' ? panel.minMag : 5.5;
@@ -8093,13 +8131,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         }
 
         function renderStorms(panel, pid) {
-            if (panel.display === 'globe') {
+            if (panel.display === 'globe' || panel.display === 'map') {
                 if (panel._storms == null) {
                     return panel._stormsFailed
                         ? `<div class="error-message">NHC FEED UNAVAILABLE — [R] to retry.</div>`
                         : `<div class="loading">LOADING TROPICAL CYCLONES…</div>`;
                 }
-                return renderGeoGlobeShell(pid);
+                return panel.display === 'map' ? renderEventMapShell(pid) : renderGeoGlobeShell(pid);
             }
             const storms = panel._storms;
             const basinKeys = getStormBasinKeys(panel);
@@ -8152,13 +8190,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         }
 
         function renderEonet(panel, pid) {
-            if (panel.display === 'globe') {
+            if (panel.display === 'globe' || panel.display === 'map') {
                 if (panel._eonetEvents == null) {
                     return panel._eonetFailed
                         ? `<div class="error-message">NASA EONET FEED UNAVAILABLE — [R] to retry.</div>`
                         : `<div class="loading">LOADING EARTH EVENTS…</div>`;
                 }
-                return renderGeoGlobeShell(pid);
+                return panel.display === 'map' ? renderEventMapShell(pid) : renderGeoGlobeShell(pid);
             }
             const events = panel._eonetEvents;
             const eonetKeys = getEonetActiveFilterKeys(panel);
@@ -8349,10 +8387,155 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         }
 
         // Adapters are registered by panel type → { rootIdPrefix, build(panel) }.
+        // --- SEISMIC / STORMS / EONET shared MAP support -------------------
+        function getGeoMapCenter(panel) {
+            const lat = Number.isFinite(panel?.geoCenterLat) ? panel.geoCenterLat : EVENT_MAP_DEFAULT_CENTER.lat;
+            const lon = Number.isFinite(panel?.geoCenterLon) ? panel.geoCenterLon : EVENT_MAP_DEFAULT_CENTER.lon;
+            const label = (panel?.geoCenterLabel && String(panel.geoCenterLabel)) || EVENT_MAP_DEFAULT_CENTER.label;
+            return { lat, lon, label };
+        }
+        function getGeoMapRadiusNm(panel) {
+            const r = Number(panel?.geoRadiusNm);
+            if (EVENT_MAP_RADII.some(x => x.key === r)) return r;
+            return EVENT_MAP_DEFAULT_RADIUS;
+        }
+        function geoDisplaySuffix(panel) {
+            if (panel.display === 'globe') return ' · GLOBE';
+            if (panel.display === 'map') {
+                const c = getGeoMapCenter(panel);
+                return ` · MAP · ${getGeoMapRadiusNm(panel)}nm · ${escapeHTML(c.label)}`;
+            }
+            return '';
+        }
+        function geoEventColor(it) {
+            if (it.kind === 'quake') {
+                const m = it.mag;
+                return m >= 7 ? 'rgba(255,40,40,0.95)'
+                     : m >= 6 ? 'rgba(255,120,40,0.95)'
+                     : m >= 5 ? 'rgba(255,200,60,0.95)'
+                     : 'rgba(0,230,140,0.9)';
+            }
+            if (it.kind === 'storm') {
+                const cat = classifyStorm(it.classification, it.intensity);
+                return cat.tag && /^[345]$|^CAT/.test(String(cat.tag)) ? 'rgba(255,40,40,0.95)' : 'rgba(120,200,255,0.95)';
+            }
+            if (it.kind === 'eonet') {
+                const pal = EONET_GLOBE_PALETTE[it.cat];
+                return pal ? pal.bright : 'rgba(0,255,128,0.9)';
+            }
+            return 'rgba(0,255,128,0.9)';
+        }
+        function geoEventLabel(it) {
+            if (it.kind === 'quake') return `M${Number(it.mag).toFixed(1)}`;
+            if (it.kind === 'storm') return it.name || '';
+            if (it.kind === 'eonet') return truncate(it.raw?.title || '', 22);
+            return '';
+        }
+        function geoEventRadiusPx(it) {
+            if (it.kind === 'quake') return Math.max(3, 2 + (Number(it.mag) - 3) * 1.6);
+            if (it.kind === 'storm') return 7;
+            if (it.kind === 'eonet') return 4 + (Number(it.dotNorm) || 0) * 5;
+            return 5;
+        }
+        const EVENT_MAP_ADAPTER = {
+            panelType: 'event',
+            rootIdPrefix: 'event-map-root',
+            getCenter: (panel) => getGeoMapCenter(panel),
+            getRadiusNm: (panel) => getGeoMapRadiusNm(panel),
+            getTrails: () => null,
+            getSelectedId: (panel) => panel._selectedGeoId || null,
+            setSelectedId: (panel, id) => { panel._selectedGeoId = id; },
+            getItems: (panel) => {
+                const c = getGeoMapCenter(panel);
+                const r = getGeoMapRadiusNm(panel);
+                return collectGeoPointsForPanel(panel)
+                    .filter(pt => pt.lat != null && pt.lon != null && nmBetween(c.lat, c.lon, pt.lat, pt.lon) <= r * 1.05)
+                    .map(pt => ({
+                        id: pt.id,
+                        lat: pt.lat,
+                        lon: pt.lon,
+                        headingDeg: null,
+                        color: geoEventColor(pt),
+                        label: geoEventLabel(pt),
+                        raw: pt,
+                        drawRadius: geoEventRadiusPx(pt),
+                    }));
+            },
+            drawIcon: (ctx, it, p) => {
+                const rad = it.drawRadius || 5;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
+                ctx.fillStyle = it.color;
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            },
+            tooltipHTML: (it, panel) => {
+                const pt = it.raw;
+                const c = getGeoMapCenter(panel);
+                const distNm = nmBetween(c.lat, c.lon, it.lat, it.lon);
+                const distLine = `<div style="color:var(--text-dim)">${distNm.toFixed(0)} nm from ${escapeHTML(c.label)}</div>`;
+                if (pt.kind === 'quake') {
+                    const e = pt.raw || {};
+                    const depth = Number.isFinite(e.depth) ? ` · ${Math.round(e.depth)} km deep` : '';
+                    const when = e.time ? ` · ${formatRelativeTime(new Date(e.time).toISOString())}` : '';
+                    const tsu = e.tsunami ? ' · ⚠ TSUNAMI' : '';
+                    return `<div style="font-weight:bold;color:var(--text-primary)">M${Number(pt.mag).toFixed(1)} earthquake</div>
+                        <div>${escapeHTML(e.place || '')}</div>
+                        <div style="color:var(--text-dim)">${Math.round(e.depth||0)} km${when}${tsu}</div>${distLine}`;
+                }
+                if (pt.kind === 'storm') {
+                    const s = pt.raw || {};
+                    const cat = classifyStorm(s.classification, s.intensity);
+                    const wind = s.intensityMph ? `${Math.round(s.intensityMph)} mph` : (s.intensity ? `${Math.round(s.intensity)} kt` : '');
+                    const pres = s.pressure ? ` · ${s.pressure} mb` : '';
+                    return `<div style="font-weight:bold;color:var(--text-primary)">${escapeHTML(s.name || 'Storm')}</div>
+                        <div>${escapeHTML(cat.tag || '')} · ${escapeHTML(wind)}${pres}</div>${distLine}`;
+                }
+                const ev = pt.raw || {};
+                const mag = formatEonetMagnitudeShort(ev);
+                const when = ev.dateMs ? formatRelativeTime(new Date(ev.dateMs).toISOString()) : '';
+                return `<div style="font-weight:bold;color:var(--text-primary)">${escapeHTML(ev.title || 'Event')}</div>
+                    <div style="color:var(--text-dim)">${escapeHTML(when)}${mag ? ' · ' + escapeHTML(mag) : ''}</div>${distLine}`;
+            },
+        };
+        function renderEventMapShell(pid) {
+            return `
+                <div class="flight-map-root" id="event-map-root-${pid}">
+                    <canvas class="flight-map-canvas"></canvas>
+                    <div class="flight-map-hint">★ = center · rings = range · tap / hover an event for details</div>
+                </div>`;
+        }
+        function geoMapTrayRows(pid, panel) {
+            if (panel.display !== 'map') return '';
+            const c = getGeoMapCenter(panel);
+            const curR = getGeoMapRadiusNm(panel);
+            const radiusChips = EVENT_MAP_RADII.map(r =>
+                `<button class="chip${curR === r.key ? ' active' : ''}" onclick="setGeoMapRadius('${pid}',${r.key})">${escapeHTML(r.label)}</button>`).join('');
+            const looksLatLon = /^-?\d+(\.\d+)?\s*[, ]\s*-?\d+(\.\d+)?$/.test(c.label || '');
+            const inputValue = looksLatLon ? `${c.lat.toFixed(4)}, ${c.lon.toFixed(4)}` : (c.label || `${c.lat.toFixed(4)}, ${c.lon.toFixed(4)}`);
+            return `
+                    <div class="tray-row">
+                        <span class="tray-label">CENTER</span>
+                        <input class="flight-center-input" type="text" id="geo-center-${pid}" value="${escapeAttr(inputValue)}"
+                               placeholder="place / region — or lat, lon"
+                               onkeydown="if(event.key==='Enter'){event.preventDefault();commitGeoMapCenter('${pid}',this.value);this.blur();}"
+                               onblur="commitGeoMapCenter('${pid}',this.value)">
+                        <span class="tray-hint">${escapeHTML(c.label)} · type a place/region or lat, lon + Enter (OpenStreetMap Nominatim)</span>
+                    </div>
+                    <div class="tray-row">
+                        <span class="tray-label">RADIUS</span>
+                        ${radiusChips}
+                        <span class="tray-hint">Map range rings · tap an event icon for details</span>
+                    </div>`;
+        }
+
         function geoMapAdapterFor(panel) {
             if (!panel) return null;
             if (panel.type === 'flights' && getFlightDisplay(panel) === 'map') return FLIGHT_MAP_ADAPTER;
             if (panel.type === 'vessels' && getVesselDisplay(panel) === 'map') return VESSEL_MAP_ADAPTER;
+            if (PANEL_TYPES[panel.type]?.supportsGeoDisplay && panel.display === 'map') return EVENT_MAP_ADAPTER;
             return null;
         }
 
@@ -8413,7 +8596,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
 
             function drawTiles(c, r, pxPerNm) {
-                const z = FLIGHTS_TILE_ZOOM_BY_RADIUS[r] || 11;
+                const z = tileZoomForRadius(r);
                 // Tile width in canvas pixels at the current projection (locally Mercator-flat).
                 const tileLonSpan = 360 / (1 << z);
                 const tileWidthPx = tileLonSpan * 60 * Math.cos(c.lat * Math.PI / 180) * pxPerNm;
@@ -8457,7 +8640,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             function draw() {
                 drawScheduled = false;
                 const panel = state.panels[pid];
-                if (!panel || panel.type !== adapter.panelType) return;
+                if (!panel || geoMapAdapterFor(panel) !== adapter) return;
                 const { c, r, pxPerNm } = projection();
                 ctx.clearRect(0, 0, cssW, cssH);
 
@@ -9474,6 +9657,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             delete panel._trails;
             delete panel._selectedHex;
             delete panel._selectedMmsi;
+            delete panel._selectedGeoId;
             saveState();
             renderAllPanels();
             refreshAll();
@@ -9987,9 +10171,43 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             const panel = state.panels[pid];
             if (!panel || !PANEL_TYPES[panel.type]?.supportsGeoDisplay) return;
             if (mode === 'globe') panel.display = 'globe';
+            else if (mode === 'map') panel.display = 'map';
             else delete panel.display;
             saveState();
             renderAllPanels();
+        }
+
+        function setGeoMapRadius(pid, r) {
+            const panel = state.panels[pid];
+            if (!panel || !PANEL_TYPES[panel.type]?.supportsGeoDisplay) return;
+            if (!EVENT_MAP_RADII.some(x => x.key === r)) return;
+            panel.geoRadiusNm = r;
+            saveState();
+            renderAllPanels();
+        }
+
+        async function commitGeoMapCenter(pid, raw) {
+            const panel = state.panels[pid];
+            if (!panel || !PANEL_TYPES[panel.type]?.supportsGeoDisplay) return;
+            const txt = String(raw || '').trim();
+            if (!txt) return;
+            const m = txt.match(/^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/);
+            if (m) {
+                const lat = Number(m[1]), lon = Number(m[2]);
+                if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+                    updateStatus('MAP · LAT/LON OUT OF RANGE', 'error'); return;
+                }
+                panel.geoCenterLat = lat; panel.geoCenterLon = lon; panel.geoCenterLabel = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+                panel._selectedGeoId = null; saveState(); renderAllPanels(); return;
+            }
+            updateStatus(`MAP · GEOCODING "${truncate(txt, 32)}"…`, 'normal');
+            try {
+                const hit = await geocodeAddress(txt);
+                if (!hit) { updateStatus(`MAP · COULD NOT FIND "${truncate(txt, 32)}"`, 'error'); return; }
+                panel.geoCenterLat = hit.lat; panel.geoCenterLon = hit.lon; panel.geoCenterLabel = hit.label;
+                panel._selectedGeoId = null; saveState(); renderAllPanels();
+                updateStatus(`MAP · CENTERED ON ${hit.label}`, 'normal');
+            } catch (e) { updateStatus('MAP · GEOCODE FAILED — try lat, lon', 'error'); }
         }
 
         // Returns a new array of symbols in sorted order for display. Does
