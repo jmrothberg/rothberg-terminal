@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.6.5</title>
+    <title>ROTHBERG TERMINAL v1.7.0</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -408,6 +408,32 @@
             color: var(--text-dim);
             font-size: 11px;
         }
+        /* VESSELS list rows — same idiom as flight rows. */
+        .vessel-row {
+            padding: 4px 4px;
+            border-bottom: 1px dashed var(--border-color);
+            cursor: pointer;
+            display: grid;
+            grid-template-columns: 1fr 130px 56px 48px 52px;
+            gap: 6px;
+            align-items: baseline;
+            font-size: 11px;
+        }
+        .vessel-row:last-child { border-bottom: none; }
+        .vessel-row.selected { background: rgba(0,255,0,0.07); }
+        .vessel-row:hover     { background: rgba(0,255,0,0.04); }
+        .vessel-row .vessel-name { font-weight: bold; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .vessel-row .vessel-meta { color: var(--text-secondary); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .vessel-row .vessel-spd,
+        .vessel-row .vessel-len,
+        .vessel-row .vessel-dist { text-align: right; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+        .vessel-status-overlay {
+            position: absolute;
+            left: 8px; right: 8px; bottom: 20px;
+            z-index: 4;
+            pointer-events: none;
+        }
+        .vessel-status-overlay > div { pointer-events: auto; background: rgba(0,12,0,0.82); }
         .flight-center-input {
             background: rgba(0,32,0,0.4);
             border: 1px solid var(--border-color);
@@ -1207,7 +1233,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.6.5</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.7.0</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1665,10 +1691,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             storms:      { label: 'TROPICAL CYCLONES',   usesSymbols: false, usesNews: false, supportsGeoDisplay: true },
             eonet:       { label: 'EARTH EVENTS (NASA)', usesSymbols: false, usesNews: false, supportsGeoDisplay: true },
             flights:     { label: 'FLIGHTS',             usesSymbols: false, usesNews: false, supportsFlightMap: true },
+            vessels:     { label: 'VESSELS (AIS)',       usesSymbols: false, usesNews: false, supportsFlightMap: true },
             externalAccount: { label: 'EXTERNAL ACCOUNT', usesSymbols: false, usesNews: false },
         };
 
-        const PANEL_TYPE_ORDER = ['stocks','indices','crypto','forex','commodities','bonds','news','prediction','calendar','movers','seismic','storms','eonet','flights','externalAccount'];
+        const PANEL_TYPE_ORDER = ['stocks','indices','crypto','forex','commodities','bonds','news','prediction','calendar','movers','seismic','storms','eonet','flights','vessels','externalAccount'];
 
         const POLYMARKET_FILTERS = [
             { key: 'all',       label: 'All',       slug: null },
@@ -1783,7 +1810,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         };
         // Map radius nm → tile zoom that puts ~3-5 tiles across the canvas.
         // Higher zoom = more detail per tile, but more tiles to fetch.
-        const FLIGHTS_TILE_ZOOM_BY_RADIUS = { 5: 13, 10: 12, 25: 11, 50: 10 };
+        const FLIGHTS_TILE_ZOOM_BY_RADIUS = { 5: 13, 10: 12, 25: 11, 50: 10, 100: 9 };
         // Process-wide tile cache (per session). Browser HTTP cache handles longer-term
         // persistence; this map skips creating new Image() elements on every redraw and
         // avoids re-fetching the same tile when the panel re-mounts after a refresh.
@@ -1817,6 +1844,61 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             const n = Math.PI - 2 * Math.PI * y / (1 << z);
             return 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
         }
+
+        // ============================================================
+        // VESSELS (AIS ship tracking) — live data over WebSocket from
+        // aisstream.io (free, but needs a one-time free API key). Unlike
+        // ADS-B there is no keyless GLOBAL AIS feed; aisstream covers the
+        // whole world incl. the Strait of Hormuz once a key is pasted in.
+        // ============================================================
+        const AIS_WS_URL = 'wss://stream.aisstream.io/v0/stream';
+        const AIS_VESSEL_TTL_MS = 10 * 60 * 1000;   // drop vessels not heard from in 10 min
+        const VESSEL_DEFAULT_CENTER = { lat: 26.57, lon: 56.25, label: 'Strait of Hormuz' };
+        const VESSEL_RADII = [
+            { key: 10,  label: '10 nm'  },
+            { key: 25,  label: '25 nm'  },
+            { key: 50,  label: '50 nm'  },
+            { key: 100, label: '100 nm' },
+        ];
+        const VESSEL_DEFAULT_RADIUS = 50;
+        // Finer vessel-type groups derived from the AIS ship-type code (0-99).
+        // Each group: key, label, the type-code ranges that map to it, and an icon color.
+        const VESSEL_TYPE_GROUPS = [
+            { key: 'tanker',    label: 'Tanker',      color: 'rgba(255,88,88,0.95)',  ranges: [[80, 89]] },
+            { key: 'cargo',     label: 'Cargo',       color: 'rgba(255,176,0,0.95)',  ranges: [[70, 79]] },
+            { key: 'passenger', label: 'Passenger',   color: 'rgba(120,200,255,0.95)',ranges: [[60, 69]] },
+            { key: 'fishing',   label: 'Fishing',     color: 'rgba(0,255,128,0.95)',  ranges: [[30, 30]] },
+            { key: 'tug',       label: 'Tug/Special', color: 'rgba(200,160,255,0.95)',ranges: [[31, 35], [50, 59]] },
+            { key: 'pleasure',  label: 'Pleasure',    color: 'rgba(0,230,210,0.95)',  ranges: [[36, 37]] },
+            { key: 'highspeed', label: 'High-speed',  color: 'rgba(255,120,220,0.95)',ranges: [[40, 49]] },
+            { key: 'other',     label: 'Other',       color: 'rgba(150,170,150,0.9)', ranges: [[0, 29], [38, 39], [90, 99]] },
+        ];
+        const VESSEL_TYPE_COLOR_DEFAULT = 'rgba(150,170,150,0.9)';
+        function classifyVesselType(code) {
+            const n = Number(code);
+            if (!Number.isFinite(n)) return 'other';
+            for (const g of VESSEL_TYPE_GROUPS) {
+                for (const [lo, hi] of g.ranges) {
+                    if (n >= lo && n <= hi) return g.key;
+                }
+            }
+            return 'other';
+        }
+        function vesselTypeColor(groupKey) {
+            const g = VESSEL_TYPE_GROUPS.find(x => x.key === groupKey);
+            return g ? g.color : VESSEL_TYPE_COLOR_DEFAULT;
+        }
+        function vesselTypeLabel(groupKey) {
+            const g = VESSEL_TYPE_GROUPS.find(x => x.key === groupKey);
+            return g ? g.label : 'Other';
+        }
+        // Shared global vessel store + single shared WebSocket (see AIS manager).
+        const aisVessels = new Map();   // mmsi → { lat, lon, sog, cog, heading, navStatus, name, shipTypeCode, group, dest, callsign, imo, lengthM, lastSeen }
+        let aisConn = null;             // { ws, key, boxesKey } | null
+        let aisStatus = 'idle';         // idle | no-key | connecting | live | disconnected | error
+        let aisReconnectTimer = null;
+        let aisReconnectDelay = 2000;
+        let aisRepaintTimer = null;
 
         const CALENDAR_CATEGORIES = [
             { key: 'all',    label: 'All' },
@@ -4450,11 +4532,234 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 content.innerHTML = renderFlights(panel, pid);
             } else {
                 // MAP: shell stays mounted; just nudge the controller to redraw.
-                const ctrl = flightMapControllers.get(pid);
+                const ctrl = geoMapControllers.get(pid);
                 if (ctrl) ctrl.requestDraw();
-                else mountFlightMaps();
+                else mountGeoMaps();
             }
             // Title detail (counts may have changed).
+            const titleLeft = root.querySelector('.panel-title-left');
+            const typeMeta = PANEL_TYPES[panel.type];
+            if (titleLeft && typeMeta) {
+                titleLeft.innerHTML = `${typeMeta.label}${renderTitleDetail(panel)}`;
+            }
+        }
+
+        // ============================================================
+        // VESSELS — AIS WebSocket manager (single shared connection)
+        // ============================================================
+
+        function getAisKey() {
+            const k = state.config && state.config.aisStreamKey;
+            return (typeof k === 'string' && k.trim()) ? k.trim() : '';
+        }
+        function getVesselCenter(panel) {
+            const lat = Number.isFinite(panel?.centerLat) ? panel.centerLat : VESSEL_DEFAULT_CENTER.lat;
+            const lon = Number.isFinite(panel?.centerLon) ? panel.centerLon : VESSEL_DEFAULT_CENTER.lon;
+            const label = (panel?.centerLabel && String(panel.centerLabel)) || VESSEL_DEFAULT_CENTER.label;
+            return { lat, lon, label };
+        }
+        function getVesselRadiusNm(panel) {
+            const r = Number(panel?.radiusNm);
+            if (VESSEL_RADII.some(x => x.key === r)) return r;
+            return VESSEL_DEFAULT_RADIUS;
+        }
+        function getVesselDisplay(panel) {
+            return panel?.display === 'list' ? 'list' : 'map';
+        }
+        function getVesselActiveTypeKeys(panel) {
+            const t = panel?.vesselTypes;
+            if (Array.isArray(t) && t.length) return t;
+            return ['all'];
+        }
+        // Bounding box [[latMin,lonMin],[latMax,lonMax]] covering a panel's circle.
+        function vesselPanelBBox(panel) {
+            const c = getVesselCenter(panel);
+            const r = getVesselRadiusNm(panel);
+            const dLat = r / 60;
+            const dLon = r / (60 * Math.max(0.2, Math.cos(c.lat * Math.PI / 180)));
+            return [[c.lat - dLat, c.lon - dLon], [c.lat + dLat, c.lon + dLon]];
+        }
+
+        function setAisStatus(s) {
+            if (aisStatus === s) return;
+            aisStatus = s;
+            scheduleVesselRepaint();
+        }
+
+        function scheduleVesselRepaint() {
+            if (aisRepaintTimer) return;
+            aisRepaintTimer = setTimeout(() => {
+                aisRepaintTimer = null;
+                for (const pid of state.layout) {
+                    if (state.panels[pid]?.type === 'vessels') repaintVesselPanel(pid);
+                }
+            }, 1000);
+        }
+
+        function pruneStaleVessels() {
+            const cutoff = Date.now() - AIS_VESSEL_TTL_MS;
+            for (const [mmsi, v] of aisVessels) {
+                if (v.lastSeen < cutoff) aisVessels.delete(mmsi);
+            }
+        }
+
+        /** (Re)open or tear down the shared aisstream.io connection to match current vessel panels. */
+        function ensureAisConnection() {
+            const panels = state.layout
+                .map(pid => state.panels[pid])
+                .filter(p => p && p.type === 'vessels');
+            if (!panels.length) {
+                teardownAisConnection();
+                aisStatus = 'idle';
+                return;
+            }
+            const key = getAisKey();
+            if (!key) {
+                teardownAisConnection();
+                setAisStatus('no-key');
+                return;
+            }
+            const boxes = panels.map(vesselPanelBBox);
+            const boxesKey = key + '|' + JSON.stringify(boxes);
+            // Already connected with the same key + boxes → nothing to do.
+            if (aisConn && aisConn.boxesKey === boxesKey
+                && aisConn.ws && aisConn.ws.readyState <= 1) return;
+            // Key or boxes changed → reconnect fresh (aisstream subscription is set at connect).
+            teardownAisConnection();
+            openAisConnection(key, boxes, boxesKey);
+        }
+
+        function openAisConnection(key, boxes, boxesKey) {
+            let ws;
+            try {
+                ws = new WebSocket(AIS_WS_URL);
+            } catch (e) {
+                console.warn('[VESSELS] WebSocket open failed:', e);
+                setAisStatus('error');
+                return;
+            }
+            aisConn = { ws, key, boxesKey };
+            setAisStatus('connecting');
+            ws.onopen = () => {
+                if (aisConn?.ws !== ws) { try { ws.close(); } catch (_e) {} return; }
+                const sub = {
+                    APIKey: key,
+                    BoundingBoxes: boxes,
+                    FilterMessageTypes: ['PositionReport', 'ShipStaticData'],
+                };
+                try { ws.send(JSON.stringify(sub)); } catch (e) { console.warn('[VESSELS] subscribe send failed:', e); }
+                aisReconnectDelay = 2000;   // reset backoff on a clean open
+                setAisStatus('live');
+            };
+            ws.onmessage = (ev) => { try { handleAisMessage(JSON.parse(ev.data)); } catch (_e) { /* ignore malformed frame */ } };
+            ws.onerror = () => { /* onclose handles reconnect */ };
+            ws.onclose = () => {
+                if (aisConn?.ws !== ws) return;   // superseded by a newer connection
+                setAisStatus('disconnected');
+                scheduleAisReconnect();
+            };
+        }
+
+        function scheduleAisReconnect() {
+            if (aisReconnectTimer) return;
+            const delay = aisReconnectDelay;
+            aisReconnectDelay = Math.min(aisReconnectDelay * 2, 30000);
+            aisReconnectTimer = setTimeout(() => {
+                aisReconnectTimer = null;
+                ensureAisConnection();
+            }, delay);
+        }
+
+        function teardownAisConnection() {
+            if (aisReconnectTimer) { clearTimeout(aisReconnectTimer); aisReconnectTimer = null; }
+            if (aisConn && aisConn.ws) {
+                const ws = aisConn.ws;
+                ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null;
+                try { ws.close(); } catch (_e) { /* noop */ }
+            }
+            aisConn = null;
+        }
+
+        /** Merge one aisstream frame into the shared vessel store (keyed by MMSI). */
+        function handleAisMessage(msg) {
+            if (!msg || typeof msg !== 'object') return;
+            const meta = msg.MetaData || {};
+            const mmsi = meta.MMSI != null ? String(meta.MMSI) : null;
+            if (!mmsi) return;
+            const lat = Number(meta.latitude);
+            const lon = Number(meta.longitude);
+            const cur = aisVessels.get(mmsi) || {};
+            const v = { ...cur, mmsi, lastSeen: Date.now() };
+            if (Number.isFinite(lat) && Number.isFinite(lon)) { v.lat = lat; v.lon = lon; }
+            const metaName = (meta.ShipName || '').trim();
+            if (metaName) v.name = metaName;
+
+            if (msg.MessageType === 'PositionReport') {
+                const pr = msg.Message?.PositionReport || {};
+                if (Number.isFinite(Number(pr.Sog))) v.sog = Number(pr.Sog);
+                if (Number.isFinite(Number(pr.Cog))) v.cog = Number(pr.Cog);
+                const th = Number(pr.TrueHeading);
+                if (Number.isFinite(th) && th >= 0 && th < 360) v.heading = th;
+                if (pr.NavigationalStatus != null) v.navStatus = Number(pr.NavigationalStatus);
+            } else if (msg.MessageType === 'ShipStaticData') {
+                const sd = msg.Message?.ShipStaticData || {};
+                if ((sd.Name || '').trim()) v.name = sd.Name.trim();
+                if (sd.Type != null) {
+                    v.shipTypeCode = Number(sd.Type);
+                    v.group = classifyVesselType(v.shipTypeCode);
+                }
+                if ((sd.Destination || '').trim()) v.dest = sd.Destination.trim();
+                if ((sd.CallSign || '').trim()) v.callsign = sd.CallSign.trim();
+                if (sd.ImoNumber != null) v.imo = Number(sd.ImoNumber);
+                const dim = sd.Dimension || {};
+                const a = Number(dim.A), b = Number(dim.B);
+                if (Number.isFinite(a) && Number.isFinite(b) && (a + b) > 0) v.lengthM = Math.round(a + b);
+            } else {
+                return;   // ignore other message types
+            }
+            if (v.group == null && v.shipTypeCode != null) v.group = classifyVesselType(v.shipTypeCode);
+            aisVessels.set(mmsi, v);
+            scheduleVesselRepaint();
+        }
+
+        /** Vessels inside a panel's radius + matching its active type chips, sorted by distance. */
+        function vesselsForPanel(panel) {
+            pruneStaleVessels();
+            const c = getVesselCenter(panel);
+            const r = getVesselRadiusNm(panel);
+            const typeKeys = getVesselActiveTypeKeys(panel);
+            const all = typeKeys.includes('all');
+            const out = [];
+            for (const v of aisVessels.values()) {
+                if (!Number.isFinite(v.lat) || !Number.isFinite(v.lon)) continue;
+                const dNm = nmBetween(c.lat, c.lon, v.lat, v.lon);
+                if (dNm > r * 1.05) continue;
+                const group = v.group || (v.shipTypeCode != null ? classifyVesselType(v.shipTypeCode) : 'other');
+                if (!all && !typeKeys.includes(group)) continue;
+                out.push({ v, dNm, group });
+            }
+            out.sort((a, b) => a.dNm - b.dNm);
+            return out;
+        }
+
+        function repaintVesselPanel(pid) {
+            const panel = state.panels[pid];
+            if (!panel || panel.type !== 'vessels') return;
+            const root = document.getElementById(`panel-${pid}`);
+            if (!root) return;
+            const content = root.querySelector('.panel-content');
+            if (content) {
+                if (getVesselDisplay(panel) === 'list') {
+                    content.innerHTML = renderVessels(panel, pid);
+                } else {
+                    const ctrl = geoMapControllers.get(pid);
+                    if (ctrl) ctrl.requestDraw();
+                    else mountGeoMaps();
+                    // Keep the status overlay (no-key / connecting / disconnected) in sync.
+                    const overlay = document.getElementById(`vessel-status-${pid}`);
+                    if (overlay) overlay.innerHTML = vesselAisStatusBanner() || '';
+                }
+            }
             const titleLeft = root.querySelector('.panel-title-left');
             const typeMeta = PANEL_TYPES[panel.type];
             if (titleLeft && typeMeta) {
@@ -4760,7 +5065,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
         function renderAllPanels() {
             disposeGeoGlobes();
-            disposeFlightMaps();
+            disposeGeoMaps();
             const grid = document.getElementById('mainGrid');
             grid.innerHTML = '';
             for (const pid of state.layout) {
@@ -4771,7 +5076,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 document.getElementById(`panel-${state.ui.openTray}`).classList.add('tray-open');
             }
             mountGeoGlobes();
-            mountFlightMaps();
+            mountGeoMaps();
+            // Open / re-subscribe / tear down the shared AIS WebSocket to match current vessel panels.
+            ensureAisConnection();
         }
 
         function renderPanel(pid) {
@@ -4808,7 +5115,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             const content = document.createElement('div');
             const globeBody = PANEL_TYPES[panel.type]?.supportsGeoDisplay && panel.display === 'globe';
             const flightMapBody = panel.type === 'flights' && getFlightDisplay(panel) === 'map';
-            content.className = 'panel-content' + (globeBody || flightMapBody ? ' panel-content--globe' : '');
+            const vesselMapBody = panel.type === 'vessels' && getVesselDisplay(panel) === 'map';
+            content.className = 'panel-content' + (globeBody || flightMapBody || vesselMapBody ? ' panel-content--globe' : '');
             content.id = `content-${pid}`;
             content.innerHTML = renderPanelContent(pid);
             root.appendChild(content);
@@ -4859,6 +5167,15 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const count = Array.isArray(panel._aircraft) ? panel._aircraft.length : null;
                 const cnt = count != null ? ` · ${count} ac` : '';
                 return ` <span style="color:var(--text-secondary);font-weight:400;">· ${escapeHTML(c.label)} · ${r}nm · ${mode}${cnt}</span>`;
+            }
+            if (panel.type === 'vessels') {
+                const r = getVesselRadiusNm(panel);
+                const c = getVesselCenter(panel);
+                const mode = getVesselDisplay(panel) === 'map' ? 'MAP' : 'LIST';
+                const statusTag = aisStatus === 'live' ? '' : ` · ${aisStatus.toUpperCase()}`;
+                const count = getAisKey() ? vesselsForPanel(panel).length : null;
+                const cnt = count != null ? ` · ${count}` : '';
+                return ` <span style="color:var(--text-secondary);font-weight:400;">· ${escapeHTML(c.label)} · ${r}nm · ${mode}${cnt}${statusTag}</span>`;
             }
             if (panel.type === 'calendar' && panel.category && panel.category !== 'all') {
                 const c = CALENDAR_CATEGORIES.find(x => x.key === panel.category);
@@ -5095,6 +5412,73 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 `;
             }
 
+            let vesselsSection = '';
+            if (panel.type === 'vessels') {
+                const currentR = getVesselRadiusNm(panel);
+                const radiusChips = VESSEL_RADII.map(r => {
+                    const active = currentR === r.key ? ' active' : '';
+                    return `<button class="chip${active}" onclick="setVesselRadius('${pid}',${r.key})">${escapeHTML(r.label)}</button>`;
+                }).join('');
+                const activeTypes = new Set(getVesselActiveTypeKeys(panel));
+                const allActive = activeTypes.has('all') ? ' active' : '';
+                const typeChips = `<button class="chip${allActive}" onclick="toggleVesselType('${pid}','all')" title="Show every vessel type">All</button>`
+                    + VESSEL_TYPE_GROUPS.map(g => {
+                        const active = !activeTypes.has('all') && activeTypes.has(g.key) ? ' active' : '';
+                        return `<button class="chip${active}" onclick="toggleVesselType('${pid}','${g.key}')" title="${escapeAttr(g.label)} (AIS ship-type group). Click multiple to combine; click All to reset.">${escapeHTML(g.label)}</button>`;
+                    }).join('');
+                const display = getVesselDisplay(panel);
+                const mapActive  = display === 'map'  ? ' active' : '';
+                const listActive = display === 'list' ? ' active' : '';
+                const c = getVesselCenter(panel);
+                const looksLikeLatLon = /^-?\d+(\.\d+)?\s*[, ]\s*-?\d+(\.\d+)?$/.test(c.label || '');
+                const inputValue = looksLikeLatLon
+                    ? `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`
+                    : (c.label || `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`);
+                const keyVal = getAisKey();
+                const keyStatus = !keyVal ? 'no key — paste one to go live'
+                    : aisStatus === 'live' ? 'connected · live'
+                    : aisStatus === 'connecting' ? 'connecting…'
+                    : aisStatus === 'disconnected' || aisStatus === 'error' ? 'disconnected — retrying'
+                    : 'key set';
+                vesselsSection = `
+                    <div class="tray-row">
+                        <span class="tray-label">CENTER</span>
+                        <input class="flight-center-input" type="text"
+                               id="vessel-center-${pid}"
+                               value="${escapeAttr(inputValue)}"
+                               placeholder="port / strait / place — or lat, lon"
+                               onkeydown="if(event.key==='Enter'){event.preventDefault();commitVesselCenter('${pid}',this.value);this.blur();}"
+                               onblur="commitVesselCenter('${pid}',this.value)">
+                        <span class="tray-hint">${escapeHTML(c.label)} · type a <strong>place / strait / port</strong> name (e.g. "Strait of Hormuz", "Singapore Strait") <em>or</em> <strong>lat, lon</strong> + Enter (resolved via OpenStreetMap Nominatim)</span>
+                    </div>
+                    <div class="tray-row">
+                        <span class="tray-label">RADIUS</span>
+                        ${radiusChips}
+                        <span class="tray-hint">Live AIS via aisstream.io WebSocket · vessels age out after 10 min with no update</span>
+                    </div>
+                    <div class="tray-row">
+                        <span class="tray-label">TYPE</span>
+                        ${typeChips}
+                        <span class="tray-hint">Click types to combine (AIS ship-type groups); <strong>All</strong> resets.</span>
+                    </div>
+                    <div class="tray-row">
+                        <span class="tray-label">DISPLAY</span>
+                        <button class="chip${mapActive}"  onclick="setVesselDisplay('${pid}','map')"  title="2D top-down map · center, range rings, course headings">MAP</button>
+                        <button class="chip${listActive}" onclick="setVesselDisplay('${pid}','list')" title="Sortable list of nearby vessels">LIST</button>
+                    </div>
+                    <div class="tray-row">
+                        <span class="tray-label">AIS KEY</span>
+                        <input class="flight-center-input" type="text"
+                               id="vessel-key-${pid}"
+                               value="${escapeAttr(keyVal)}"
+                               placeholder="paste free aisstream.io API key"
+                               onkeydown="if(event.key==='Enter'){event.preventDefault();setAisStreamKey(this.value);this.blur();}"
+                               onblur="setAisStreamKey(this.value)">
+                        <span class="tray-hint">${escapeHTML(keyStatus)} · free key from <a href="https://aisstream.io/" target="_blank" rel="noopener">aisstream.io</a> (signup, no payment). Shared by all VESSELS panels, stored locally in your browser.</span>
+                    </div>
+                `;
+            }
+
             let calendarSection = '';
             if (panel.type === 'calendar') {
                 const current = panel.category || 'all';
@@ -5242,6 +5626,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     ${stormsSection}
                     ${eonetSection}
                     ${flightsSection}
+                    ${vesselsSection}
                     ${calendarSection}
                     ${externalAccountSection}
                     ${extHoursSection}
@@ -5267,6 +5652,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 case 'storms':     return renderStorms(panel, pid);
                 case 'eonet':      return renderEonet(panel, pid);
                 case 'flights':    return renderFlights(panel, pid);
+                case 'vessels':    return renderVessels(panel, pid);
                 case 'externalAccount': return panel.display === 'heatmap'
                     ? renderExternalAccountHeatMap(panel, pid)
                     : renderExternalAccountHoldings(panel, pid);
@@ -7879,41 +8265,64 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 </div>`;
         }
 
-        // --- FLIGHTS map runtime (2D top-down, locked-north) ----------------
+        // --- Shared 2D geo-map runtime (locked-north top-down) --------------
+        // Used by both FLIGHTS and VESSELS. The panel-specific bits (data source,
+        // icon shape, tooltip content, selection key) live in an `adapter`; the
+        // runtime owns tiles, range rings, compass, home pin, projection, pointer
+        // hit-testing, tooltip placement, and the RAF redraw loop.
 
-        const flightMapControllers = new Map();
+        const geoMapControllers = new Map();
 
-        function disposeFlightMaps() {
-            flightMapControllers.forEach(c => {
+        function disposeGeoMaps() {
+            geoMapControllers.forEach(c => {
                 try { c.dispose(); } catch (_e) { /* noop */ }
             });
-            flightMapControllers.clear();
+            geoMapControllers.clear();
         }
 
-        function mountFlightMaps() {
+        // Adapters are registered by panel type → { rootIdPrefix, build(panel) }.
+        function geoMapAdapterFor(panel) {
+            if (!panel) return null;
+            if (panel.type === 'flights' && getFlightDisplay(panel) === 'map') return FLIGHT_MAP_ADAPTER;
+            if (panel.type === 'vessels' && getVesselDisplay(panel) === 'map') return VESSEL_MAP_ADAPTER;
+            return null;
+        }
+
+        function mountGeoMaps() {
             for (const pid of state.layout) {
                 const panel = state.panels[pid];
-                if (!panel || panel.type !== 'flights' || getFlightDisplay(panel) !== 'map') continue;
-                const root = document.getElementById(`flight-map-root-${pid}`);
+                const adapter = geoMapAdapterFor(panel);
+                if (!adapter) continue;
+                const root = document.getElementById(`${adapter.rootIdPrefix}-${pid}`);
                 if (!root) continue;
                 const canvas = root.querySelector('canvas');
                 if (!canvas) continue;
-                if (flightMapControllers.has(pid)) continue;
-                flightMapControllers.set(pid, startFlightMapRuntime(pid, root, canvas));
+                if (geoMapControllers.has(pid)) continue;
+                geoMapControllers.set(pid, startGeoMapRuntime(pid, root, canvas, adapter));
             }
         }
 
-        function startFlightMapRuntime(pid, root, canvas) {
+        /**
+         * @param adapter {
+         *   panelType, rootIdPrefix,
+         *   getCenter(panel) → {lat,lon,label}, getRadiusNm(panel) → nm,
+         *   getItems(panel) → [{ id, lat, lon, headingDeg|null, color, label, raw }],
+         *   getTrails(panel) → {key:[{lat,lon}]}|null,
+         *   getSelectedId(panel) / setSelectedId(panel, id|null),
+         *   drawIcon(ctx, item, p), tooltipHTML(item, panel),
+         * }
+         */
+        function startGeoMapRuntime(pid, root, canvas, adapter) {
             const ctx = canvas.getContext('2d');
             let cssW = 1, cssH = 1, pxPerNm = 1;
             let tooltip = null;
-            let hoverHex = null;
+            let hoverId = null;
             let drawScheduled = false;
 
             function projection() {
                 const panel = state.panels[pid];
-                const c = getFlightCenter(panel);
-                const r = getFlightRadiusNm(panel);
+                const c = adapter.getCenter(panel);
+                const r = adapter.getRadiusNm(panel);
                 pxPerNm = Math.max(2, Math.min(cssW, cssH) / 2 / r * 0.95);
                 return { c, r, pxPerNm };
             }
@@ -7922,14 +8331,6 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const dyNm = (lat - c.lat) * 60;
                 const dxNm = (lon - c.lon) * 60 * Math.cos(c.lat * Math.PI / 180);
                 return { x: cssW / 2 + dxNm * pxPerNm, y: cssH / 2 - dyNm * pxPerNm };
-            }
-
-            function canvasToLL(px, py, c, pxPerNm) {
-                const dxNm = (px - cssW / 2) / pxPerNm;
-                const dyNm = -(py - cssH / 2) / pxPerNm;
-                const lat = c.lat + dyNm / 60;
-                const lon = c.lon + dxNm / (60 * Math.cos(c.lat * Math.PI / 180));
-                return { lat, lon };
             }
 
             function resize() {
@@ -7941,30 +8342,6 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 canvas.width  = Math.max(1, Math.floor(w * pr));
                 canvas.height = Math.max(1, Math.floor(h * pr));
                 ctx.setTransform(pr, 0, 0, pr, 0, 0);
-            }
-
-            function altColor(ac) {
-                if (ac.onGround) return 'rgba(140,140,140,0.85)';
-                if (ac.altFt == null) return 'rgba(0,220,128,0.85)';
-                if (ac.altFt < 5000)  return 'rgba(255,176,0,0.95)';
-                if (ac.altFt < 18000) return 'rgba(0,255,128,0.95)';
-                return 'rgba(0,180,90,0.78)';
-            }
-
-            function drawAircraftIcon(ac, p) {
-                const heading = (ac.trackDeg == null ? 0 : ac.trackDeg) * Math.PI / 180;
-                ctx.save();
-                ctx.translate(p.x, p.y);
-                ctx.rotate(heading);
-                ctx.beginPath();
-                ctx.moveTo(0, -8);
-                ctx.lineTo(6, 6);
-                ctx.lineTo(0, 3);
-                ctx.lineTo(-6, 6);
-                ctx.closePath();
-                ctx.fillStyle = altColor(ac);
-                ctx.fill();
-                ctx.restore();
             }
 
             function drawTiles(c, r, pxPerNm) {
@@ -8012,7 +8389,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             function draw() {
                 drawScheduled = false;
                 const panel = state.panels[pid];
-                if (!panel || panel.type !== 'flights') return;
+                if (!panel || panel.type !== adapter.panelType) return;
                 const { c, r, pxPerNm } = projection();
                 ctx.clearRect(0, 0, cssW, cssH);
 
@@ -8053,43 +8430,45 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 ctx.textAlign = 'right';
                 ctx.fillText('W', 8, cy);
 
-                // Trails
-                const trails = panel._trails || {};
-                ctx.lineWidth = 1;
-                for (const k of Object.keys(trails)) {
-                    const arr = trails[k];
-                    if (!arr || arr.length < 2) continue;
-                    for (let i = 1; i < arr.length; i++) {
-                        const a = llToCanvas(arr[i-1].lat, arr[i-1].lon, c, pxPerNm);
-                        const b = llToCanvas(arr[i].lat,   arr[i].lon,   c, pxPerNm);
-                        const t = i / arr.length;
-                        ctx.strokeStyle = `rgba(0,255,128,${0.12 + 0.5 * t})`;
-                        ctx.beginPath();
-                        ctx.moveTo(a.x, a.y);
-                        ctx.lineTo(b.x, b.y);
-                        ctx.stroke();
+                // Trails (optional per adapter)
+                const trails = adapter.getTrails ? adapter.getTrails(panel) : null;
+                if (trails) {
+                    ctx.lineWidth = 1;
+                    for (const k of Object.keys(trails)) {
+                        const arr = trails[k];
+                        if (!arr || arr.length < 2) continue;
+                        for (let i = 1; i < arr.length; i++) {
+                            const a = llToCanvas(arr[i-1].lat, arr[i-1].lon, c, pxPerNm);
+                            const b = llToCanvas(arr[i].lat,   arr[i].lon,   c, pxPerNm);
+                            const t = i / arr.length;
+                            ctx.strokeStyle = `rgba(0,255,128,${0.12 + 0.5 * t})`;
+                            ctx.beginPath();
+                            ctx.moveTo(a.x, a.y);
+                            ctx.lineTo(b.x, b.y);
+                            ctx.stroke();
+                        }
                     }
                 }
 
-                // Aircraft icons + labels
-                const list = Array.isArray(panel._aircraft) ? panel._aircraft : [];
-                const selHex = panel._selectedHex || '';
+                // Item icons + labels
+                const items = adapter.getItems(panel) || [];
+                const selId = adapter.getSelectedId(panel);
                 ctx.font = '10px "IBM Plex Mono", monospace';
-                for (const ac of list) {
-                    const p = llToCanvas(ac.lat, ac.lon, c, pxPerNm);
-                    // Skip aircraft fully outside the visible canvas (slight margin).
+                for (const it of items) {
+                    const p = llToCanvas(it.lat, it.lon, c, pxPerNm);
+                    // Skip items fully outside the visible canvas (slight margin).
                     if (p.x < -20 || p.y < -20 || p.x > cssW + 20 || p.y > cssH + 20) continue;
-                    drawAircraftIcon(ac, p);
-                    const cs = (ac.callsign || ac.hex.toUpperCase() || '').trim();
-                    if (cs) {
-                        ctx.fillStyle = ac.hex === selHex
+                    adapter.drawIcon(ctx, it, p);
+                    const lbl = (it.label || '').trim();
+                    if (lbl) {
+                        ctx.fillStyle = it.id === selId
                             ? 'rgba(255,255,255,0.95)'
-                            : (ac.hex === hoverHex ? 'rgba(0,255,128,1)' : 'rgba(0,255,128,0.78)');
+                            : (it.id === hoverId ? 'rgba(0,255,128,1)' : 'rgba(0,255,128,0.78)');
                         ctx.textAlign = 'left';
                         ctx.textBaseline = 'top';
-                        ctx.fillText(cs, p.x + 7, p.y + 6);
+                        ctx.fillText(lbl, p.x + 7, p.y + 6);
                     }
-                    if (ac.hex && ac.hex === selHex) {
+                    if (it.id != null && it.id === selId) {
                         ctx.strokeStyle = 'rgba(255,255,255,0.85)';
                         ctx.lineWidth = 1.5;
                         ctx.beginPath();
@@ -8136,15 +8515,15 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const panel = state.panels[pid];
                 if (!panel) return null;
                 const { c, pxPerNm } = projection();
-                const list = Array.isArray(panel._aircraft) ? panel._aircraft : [];
+                const items = adapter.getItems(panel) || [];
                 const rad = hitRadiusPx || 18;
                 let best = null;
                 let bestD2 = rad * rad;
-                for (const ac of list) {
-                    const p = llToCanvas(ac.lat, ac.lon, c, pxPerNm);
+                for (const it of items) {
+                    const p = llToCanvas(it.lat, it.lon, c, pxPerNm);
                     const dx = p.x - mx, dy = p.y - my;
                     const d2 = dx * dx + dy * dy;
-                    if (d2 < bestD2) { bestD2 = d2; best = ac; }
+                    if (d2 < bestD2) { bestD2 = d2; best = it; }
                 }
                 return best;
             }
@@ -8158,45 +8537,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 return tooltip;
             }
 
-            function tooltipHTMLFor(ac) {
-                const cs = (ac.callsign || ac.hex.toUpperCase() || '').trim();
-                const route = cs ? flightRouteCache[cs] : null;
-                const op = flightOperatorShort(ac, route) || '';
-                const tp = flightTypeShort(ac) || '';
-                const rtLine = (() => {
-                    if (!route) return cs ? '<span style="color:var(--text-dim)">(route lookup pending…)</span>' : '';
-                    if (route.missing) return '<span style="color:var(--text-dim)">No route on file</span>';
-                    if (!isRoutePlausibleForAc(ac, route)) {
-                        // adsbdb has a scheduled route for this callsign but the aircraft is far from it —
-                        // airline almost certainly reused the callsign for a different leg today.
-                        return '<span style="color:var(--text-dim)">Callsign reused — actual route unknown</span>';
-                    }
-                    const o = route.origin, d = route.destination;
-                    const oTxt = o ? `${o.iata || o.icao || ''} ${o.city || o.name || ''}`.trim() : '';
-                    const dTxt = d ? `${d.iata || d.icao || ''} ${d.city || d.name || ''}`.trim() : '';
-                    return `${escapeHTML(oTxt)} → ${escapeHTML(dTxt)}`;
-                })();
-                const altStr = ac.onGround ? 'On ground' :
-                    ac.altFt != null ? `${flightAltLabel(ac)}${ac.altFt < 18000 ? ' ft' : ''}` : '—';
-                const spdStr = ac.gsKt != null ? `${Math.round(ac.gsKt)} kt` : '';
-                const hdgStr = flightHeadingLabel(ac.trackDeg);
-                const vr = ac.vrFpm != null && Math.abs(ac.vrFpm) > 50
-                    ? `${ac.vrFpm > 0 ? '↑' : '↓'} ${Math.abs(Math.round(ac.vrFpm))} fpm` : '';
-                const regBits = [ac.reg, tp].filter(Boolean).join(' · ');
-                const distNm = nmBetween(getFlightCenter(state.panels[pid]).lat, getFlightCenter(state.panels[pid]).lon, ac.lat, ac.lon);
-                return `
-                    <div style="font-weight:bold;color:var(--text-primary)">${escapeHTML(cs || '—')}</div>
-                    ${op ? `<div>${escapeHTML(op)}</div>` : ''}
-                    ${regBits ? `<div style="color:var(--text-secondary)">${escapeHTML(regBits)}</div>` : ''}
-                    ${rtLine ? `<div>${rtLine}</div>` : ''}
-                    <div style="color:var(--text-dim)">${altStr} · ${spdStr} · ${hdgStr}${vr ? ' · ' + vr : ''}</div>
-                    <div style="color:var(--text-dim)">${distNm.toFixed(1)} nm from ${escapeHTML(getFlightCenter(state.panels[pid]).label)}</div>
-                `;
-            }
-
-            function showTooltipAt(mx, my, ac) {
+            function showTooltipAt(mx, my, it) {
                 const tt = ensureTooltip();
-                tt.innerHTML = tooltipHTMLFor(ac);
+                tt.innerHTML = adapter.tooltipHTML(it, state.panels[pid]);
                 tt.style.display = 'block';
                 // Keep tooltip inside the panel.
                 const rootRect = root.getBoundingClientRect();
@@ -8216,21 +8559,21 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
             function onPointerDown(e) {
                 // iPad: a tap is the primary interaction — show tooltip + select in one gesture.
-                // Mouse: clicking selects (or de-selects) and pins the tooltip on that aircraft.
+                // Mouse: clicking selects (or de-selects) and pins the tooltip on that item.
                 const isTouch = e.pointerType === 'touch' || e.pointerType === 'pen';
                 const rect = canvas.getBoundingClientRect();
                 const mx = e.clientX - rect.left;
                 const my = e.clientY - rect.top;
-                const ac = hitTest(mx, my, isTouch ? 28 : 18);
+                const it = hitTest(mx, my, isTouch ? 28 : 18);
                 const panel = state.panels[pid];
                 if (!panel) return;
-                if (ac) {
-                    panel._selectedHex = ac.hex;
-                    hoverHex = ac.hex;
-                    showTooltipAt(mx, my, ac);
+                if (it) {
+                    adapter.setSelectedId(panel, it.id);
+                    hoverId = it.id;
+                    showTooltipAt(mx, my, it);
                 } else {
-                    panel._selectedHex = null;
-                    hoverHex = null;
+                    adapter.setSelectedId(panel, null);
+                    hoverId = null;
                     hideTooltip();
                 }
                 requestDraw();
@@ -8242,19 +8585,19 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const rect = canvas.getBoundingClientRect();
                 const mx = e.clientX - rect.left;
                 const my = e.clientY - rect.top;
-                const ac = hitTest(mx, my, 18);
-                const newHover = ac ? ac.hex : null;
-                if (newHover !== hoverHex) {
-                    hoverHex = newHover;
+                const it = hitTest(mx, my, 18);
+                const newHover = it ? it.id : null;
+                if (newHover !== hoverId) {
+                    hoverId = newHover;
                     requestDraw();
                 }
-                if (ac) showTooltipAt(mx, my, ac);
+                if (it) showTooltipAt(mx, my, it);
                 else hideTooltip();
             }
 
             function onPointerLeave(e) {
                 if (e.pointerType && e.pointerType !== 'mouse') return;
-                hoverHex = null;
+                hoverId = null;
                 hideTooltip();
                 requestDraw();
             }
@@ -8285,6 +8628,221 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 },
             };
         }
+
+        // FLIGHTS adapter — feeds the shared geo-map runtime from panel._aircraft.
+        function flightAltColor(ac) {
+            if (ac.onGround) return 'rgba(140,140,140,0.85)';
+            if (ac.altFt == null) return 'rgba(0,220,128,0.85)';
+            if (ac.altFt < 5000)  return 'rgba(255,176,0,0.95)';
+            if (ac.altFt < 18000) return 'rgba(0,255,128,0.95)';
+            return 'rgba(0,180,90,0.78)';
+        }
+        const FLIGHT_MAP_ADAPTER = {
+            panelType: 'flights',
+            rootIdPrefix: 'flight-map-root',
+            getCenter: (panel) => getFlightCenter(panel),
+            getRadiusNm: (panel) => getFlightRadiusNm(panel),
+            getTrails: (panel) => panel._trails || null,
+            getSelectedId: (panel) => panel._selectedHex || null,
+            setSelectedId: (panel, id) => { panel._selectedHex = id; },
+            getItems: (panel) => (Array.isArray(panel._aircraft) ? panel._aircraft : []).map(ac => ({
+                id: ac.hex,
+                lat: ac.lat,
+                lon: ac.lon,
+                headingDeg: ac.trackDeg,
+                color: flightAltColor(ac),
+                label: (ac.callsign || (ac.hex || '').toUpperCase() || '').trim(),
+                raw: ac,
+            })),
+            drawIcon: (ctx, it, p) => {
+                const heading = (it.headingDeg == null ? 0 : it.headingDeg) * Math.PI / 180;
+                ctx.save();
+                ctx.translate(p.x, p.y);
+                ctx.rotate(heading);
+                ctx.beginPath();
+                ctx.moveTo(0, -8);
+                ctx.lineTo(6, 6);
+                ctx.lineTo(0, 3);
+                ctx.lineTo(-6, 6);
+                ctx.closePath();
+                ctx.fillStyle = it.color;
+                ctx.fill();
+                ctx.restore();
+            },
+            tooltipHTML: (it, panel) => {
+                const ac = it.raw;
+                const cs = (ac.callsign || ac.hex.toUpperCase() || '').trim();
+                const route = cs ? flightRouteCache[cs] : null;
+                const op = flightOperatorShort(ac, route) || '';
+                const tp = flightTypeShort(ac) || '';
+                const rtLine = (() => {
+                    if (!route) return cs ? '<span style="color:var(--text-dim)">(route lookup pending…)</span>' : '';
+                    if (route.missing) return '<span style="color:var(--text-dim)">No route on file</span>';
+                    if (!isRoutePlausibleForAc(ac, route)) {
+                        return '<span style="color:var(--text-dim)">Callsign reused — actual route unknown</span>';
+                    }
+                    const o = route.origin, d = route.destination;
+                    const oTxt = o ? `${o.iata || o.icao || ''} ${o.city || o.name || ''}`.trim() : '';
+                    const dTxt = d ? `${d.iata || d.icao || ''} ${d.city || d.name || ''}`.trim() : '';
+                    return `${escapeHTML(oTxt)} → ${escapeHTML(dTxt)}`;
+                })();
+                const altStr = ac.onGround ? 'On ground' :
+                    ac.altFt != null ? `${flightAltLabel(ac)}${ac.altFt < 18000 ? ' ft' : ''}` : '—';
+                const spdStr = ac.gsKt != null ? `${Math.round(ac.gsKt)} kt` : '';
+                const hdgStr = flightHeadingLabel(ac.trackDeg);
+                const vr = ac.vrFpm != null && Math.abs(ac.vrFpm) > 50
+                    ? `${ac.vrFpm > 0 ? '↑' : '↓'} ${Math.abs(Math.round(ac.vrFpm))} fpm` : '';
+                const regBits = [ac.reg, tp].filter(Boolean).join(' · ');
+                const c = getFlightCenter(panel);
+                const distNm = nmBetween(c.lat, c.lon, ac.lat, ac.lon);
+                return `
+                    <div style="font-weight:bold;color:var(--text-primary)">${escapeHTML(cs || '—')}</div>
+                    ${op ? `<div>${escapeHTML(op)}</div>` : ''}
+                    ${regBits ? `<div style="color:var(--text-secondary)">${escapeHTML(regBits)}</div>` : ''}
+                    ${rtLine ? `<div>${rtLine}</div>` : ''}
+                    <div style="color:var(--text-dim)">${altStr} · ${spdStr} · ${hdgStr}${vr ? ' · ' + vr : ''}</div>
+                    <div style="color:var(--text-dim)">${distNm.toFixed(1)} nm from ${escapeHTML(c.label)}</div>
+                `;
+            },
+        };
+
+        // ============================================================
+        // RENDERING — VESSELS (AIS)
+        // ============================================================
+
+        // MMSI MID (first 3 digits) → flag, for a country hint in the tooltip/list.
+        function vesselFlagFromMmsi(mmsi) {
+            const mid = String(mmsi || '').slice(0, 3);
+            const map = {
+                '201':'AL','202':'AD','203':'AT','205':'BE','209':'CY','210':'CY','211':'DE','212':'CY','219':'DK','220':'DK',
+                '224':'ES','225':'ES','226':'FR','227':'FR','228':'FR','230':'FI','231':'FO','232':'GB','233':'GB','234':'GB','235':'GB',
+                '236':'GI','237':'GR','238':'HR','239':'GR','240':'GR','241':'GR','244':'NL','245':'NL','246':'NL','247':'IT','248':'MT',
+                '249':'MT','250':'IE','256':'MT','257':'NO','258':'NO','259':'NO','261':'PL','263':'PT','265':'SE','266':'SE','269':'CH',
+                '271':'TR','272':'UA','273':'RU','303':'US','338':'US','366':'US','367':'US','368':'US','369':'US','316':'CA',
+                '370':'PA','371':'PA','372':'PA','373':'PA','374':'PA','412':'CN','413':'CN','414':'CN','416':'TW','431':'JP','432':'JP',
+                '440':'KR','441':'KR','445':'KP','450':'LB','470':'AE','471':'AE','472':'TJ','473':'IR','508':'BN','525':'ID',
+                '533':'MY','563':'SG','564':'SG','565':'SG','566':'SG','574':'VN','577':'VU','636':'LR','637':'LR','657':'NG','710':'BR',
+            };
+            return map[mid] || '';
+        }
+
+        function vesselNavStatusLabel(code) {
+            const m = { 0:'Under way', 1:'At anchor', 2:'Not under command', 3:'Restricted manoeuvr.', 4:'Constrained by draught',
+                        5:'Moored', 6:'Aground', 7:'Fishing', 8:'Under way sailing', 11:'Towing astern', 12:'Pushing ahead', 15:'Undefined' };
+            return m[Number(code)] || '';
+        }
+
+        function vesselAisStatusBanner() {
+            const key = getAisKey();
+            if (!key) {
+                return `<div class="flight-empty">No aisstream.io key set. Open this panel's tray → <strong>AIS KEY</strong>, paste a free key from <a href="https://aisstream.io/" target="_blank" rel="noopener">aisstream.io</a> (free signup, no payment). Stored locally in your browser.</div>`;
+            }
+            if (aisStatus === 'connecting') return `<div class="loading">CONNECTING TO AIS STREAM…</div>`;
+            if (aisStatus === 'disconnected' || aisStatus === 'error') return `<div class="error-message">AIS STREAM DISCONNECTED — reconnecting… (check the key if this persists).</div>`;
+            return null;
+        }
+
+        function renderVessels(panel, pid) {
+            const banner = vesselAisStatusBanner();
+            if (getVesselDisplay(panel) === 'map') {
+                // Overlay element is always present (addressable) so repaintVesselPanel can sync
+                // its content when the AIS status changes without a full re-render.
+                return renderVesselMapShell(pid)
+                    + `<div class="vessel-status-overlay" id="vessel-status-${pid}">${banner || ''}</div>`;
+            }
+            // LIST — lead with the status banner (if any), then cached vessels.
+            const rows = vesselsForPanel(panel);
+            if (!rows.length) {
+                if (banner) return banner;
+                return `<div class="flight-empty">No vessels in range for this filter yet. AIS positions arrive every few seconds (static name/type can take a minute).</div>`;
+            }
+            const sel = panel._selectedMmsi || '';
+            const head = banner || '';
+            return head + rows.map(({ v, dNm, group }) => {
+                const name = v.name || `MMSI ${v.mmsi}`;
+                const flag = vesselFlagFromMmsi(v.mmsi);
+                const meta = [vesselTypeLabel(group), flag, v.dest ? `→ ${v.dest}` : ''].filter(Boolean).join(' · ');
+                const selCls = v.mmsi === sel ? ' selected' : '';
+                const spd = Number.isFinite(v.sog) ? `${v.sog.toFixed(1)} kt` : '—';
+                const len = Number.isFinite(v.lengthM) ? `${v.lengthM} m` : '';
+                return `
+                    <div class="vessel-row${selCls}" onclick="selectVesselFromList('${escapeAttr(pid)}','${escapeAttr(v.mmsi)}')">
+                        <span class="vessel-name">${escapeHTML(name)}</span>
+                        <span class="vessel-meta">${escapeHTML(meta)}</span>
+                        <span class="vessel-spd">${spd}</span>
+                        <span class="vessel-len">${len}</span>
+                        <span class="vessel-dist">${dNm.toFixed(1)} nm</span>
+                    </div>`;
+            }).join('');
+        }
+
+        function renderVesselMapShell(pid) {
+            return `
+                <div class="flight-map-root" id="vessel-map-root-${pid}">
+                    <canvas class="flight-map-canvas"></canvas>
+                    <div class="flight-map-hint">★ = center · rings = range · ▮ = vessel (course) · tap / hover for details</div>
+                </div>`;
+        }
+
+        // VESSELS adapter — feeds the shared geo-map runtime from the AIS vessel store.
+        const VESSEL_MAP_ADAPTER = {
+            panelType: 'vessels',
+            rootIdPrefix: 'vessel-map-root',
+            getCenter: (panel) => getVesselCenter(panel),
+            getRadiusNm: (panel) => getVesselRadiusNm(panel),
+            getTrails: () => null,
+            getSelectedId: (panel) => panel._selectedMmsi || null,
+            setSelectedId: (panel, id) => { panel._selectedMmsi = id; },
+            getItems: (panel) => vesselsForPanel(panel).map(({ v, group }) => ({
+                id: v.mmsi,
+                lat: v.lat,
+                lon: v.lon,
+                headingDeg: Number.isFinite(v.cog) ? v.cog : (Number.isFinite(v.heading) ? v.heading : null),
+                color: vesselTypeColor(group),
+                label: v.name || `MMSI ${v.mmsi}`,
+                raw: v,
+            })),
+            drawIcon: (ctx, it, p) => {
+                // Elongated ship hull pointing in the course direction (north-up = 0°).
+                const hdg = (it.headingDeg == null ? 0 : it.headingDeg) * Math.PI / 180;
+                ctx.save();
+                ctx.translate(p.x, p.y);
+                ctx.rotate(hdg);
+                ctx.beginPath();
+                ctx.moveTo(0, -9);     // bow
+                ctx.lineTo(4, -2);
+                ctx.lineTo(4, 7);      // stern corners
+                ctx.lineTo(-4, 7);
+                ctx.lineTo(-4, -2);
+                ctx.closePath();
+                ctx.fillStyle = it.color;
+                ctx.fill();
+                ctx.restore();
+            },
+            tooltipHTML: (it, panel) => {
+                const v = it.raw;
+                const name = v.name || `MMSI ${v.mmsi}`;
+                const flag = vesselFlagFromMmsi(v.mmsi);
+                const typeLine = [vesselTypeLabel(v.group || classifyVesselType(v.shipTypeCode)),
+                    flag ? `(${flag})` : ''].filter(Boolean).join(' ');
+                const idLine = [`MMSI ${v.mmsi}`, v.callsign, Number.isFinite(v.imo) && v.imo ? `IMO ${v.imo}` : '']
+                    .filter(Boolean).join(' · ');
+                const spd = Number.isFinite(v.sog) ? `${v.sog.toFixed(1)} kt` : '—';
+                const cog = Number.isFinite(v.cog) ? `${Math.round(v.cog)}°` : '—';
+                const len = Number.isFinite(v.lengthM) ? ` · ${v.lengthM} m` : '';
+                const nav = vesselNavStatusLabel(v.navStatus);
+                const c = getVesselCenter(panel);
+                const distNm = nmBetween(c.lat, c.lon, v.lat, v.lon);
+                return `
+                    <div style="font-weight:bold;color:var(--text-primary)">${escapeHTML(name)}</div>
+                    <div>${escapeHTML(typeLine)}</div>
+                    <div style="color:var(--text-secondary)">${escapeHTML(idLine)}</div>
+                    ${v.dest ? `<div>→ ${escapeHTML(v.dest)}</div>` : ''}
+                    <div style="color:var(--text-dim)">${spd} · COG ${cog}${len}${nav ? ' · ' + escapeHTML(nav) : ''}</div>
+                    <div style="color:var(--text-dim)">${distNm.toFixed(1)} nm from ${escapeHTML(c.label)}</div>
+                `;
+            },
+        };
 
         // ============================================================
         // RENDERING — CALENDAR
@@ -8590,6 +9148,16 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 if (panel.display === 'list') panel.memory.flights.display = 'list';
                 else delete panel.memory.flights.display;
             }
+            if (oldType === 'vessels') {
+                panel.memory.vessels = { ...panel.memory.vessels };
+                if (Number.isFinite(panel.centerLat)) panel.memory.vessels.centerLat = panel.centerLat;
+                if (Number.isFinite(panel.centerLon)) panel.memory.vessels.centerLon = panel.centerLon;
+                if (panel.centerLabel) panel.memory.vessels.centerLabel = panel.centerLabel;
+                if (Number.isFinite(panel.radiusNm)) panel.memory.vessels.radiusNm = panel.radiusNm;
+                if (Array.isArray(panel.vesselTypes)) panel.memory.vessels.vesselTypes = [...panel.vesselTypes];
+                if (panel.display === 'list') panel.memory.vessels.display = 'list';
+                else delete panel.memory.vessels.display;
+            }
             // EXTERNAL ACCOUNT — stash Fidelity CSV snapshot when leaving this type (restore on return).
             if (oldType === 'externalAccount') {
                 ensureExternalBundles(panel);
@@ -8713,11 +9281,20 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 panel.centerLabel = mem.centerLabel || FLIGHTS_DEFAULT_CENTER.label;
                 panel.radiusNm = FLIGHTS_RADII.some(r => r.key === mem.radiusNm) ? mem.radiusNm : FLIGHTS_DEFAULT_RADIUS;
                 panel.display = mem.display === 'list' ? 'list' : 'map';
+            } else if (newType === 'vessels') {
+                const mem = panel.memory.vessels || {};
+                panel.centerLat = Number.isFinite(mem.centerLat) ? mem.centerLat : VESSEL_DEFAULT_CENTER.lat;
+                panel.centerLon = Number.isFinite(mem.centerLon) ? mem.centerLon : VESSEL_DEFAULT_CENTER.lon;
+                panel.centerLabel = mem.centerLabel || VESSEL_DEFAULT_CENTER.label;
+                panel.radiusNm = VESSEL_RADII.some(r => r.key === mem.radiusNm) ? mem.radiusNm : VESSEL_DEFAULT_RADIUS;
+                panel.vesselTypes = Array.isArray(mem.vesselTypes) && mem.vesselTypes.length ? [...mem.vesselTypes] : ['all'];
+                panel.display = mem.display === 'list' ? 'list' : 'map';
             } else {
                 delete panel.centerLat;
                 delete panel.centerLon;
                 delete panel.centerLabel;
                 delete panel.radiusNm;
+                delete panel.vesselTypes;
             }
             if (newType === 'externalAccount') {
                 const mem = panel.memory.externalAccount;
@@ -8817,6 +9394,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             delete panel._aircraftTs;
             delete panel._trails;
             delete panel._selectedHex;
+            delete panel._selectedMmsi;
             saveState();
             renderAllPanels();
             refreshAll();
@@ -8928,6 +9506,103 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             if (!panel || panel.type !== 'flights') return;
             panel._selectedHex = panel._selectedHex === hex ? null : hex;
             repaintFlightPanel(pid);
+        }
+
+        // --- VESSELS handlers ---------------------------------------------
+
+        function setVesselRadius(pid, radiusNm) {
+            const panel = state.panels[pid];
+            if (!panel || panel.type !== 'vessels') return;
+            if (!VESSEL_RADII.some(r => r.key === radiusNm)) return;
+            if (panel.radiusNm === radiusNm) return;
+            panel.radiusNm = radiusNm;
+            panel._selectedMmsi = null;
+            saveState();
+            renderAllPanels();   // re-subscribes the WS with the new bounding box via ensureAisConnection
+        }
+
+        function setVesselDisplay(pid, mode) {
+            const panel = state.panels[pid];
+            if (!panel || panel.type !== 'vessels') return;
+            const next = mode === 'list' ? 'list' : 'map';
+            if (panel.display === next) return;
+            panel.display = next;
+            saveState();
+            renderAllPanels();
+        }
+
+        function toggleVesselType(pid, key) {
+            const panel = state.panels[pid];
+            if (!panel || panel.type !== 'vessels') return;
+            if (key === 'all') {
+                panel.vesselTypes = ['all'];
+            } else {
+                let cur = getVesselActiveTypeKeys(panel).filter(k => k !== 'all');
+                if (cur.includes(key)) cur = cur.filter(k => k !== key);
+                else cur = [...cur, key];
+                panel.vesselTypes = cur.length ? cur : ['all'];
+            }
+            saveState();
+            renderAllPanels();
+        }
+
+        function applyVesselCenter(panel, lat, lon, label) {
+            if (panel.centerLat === lat && panel.centerLon === lon && panel.centerLabel === label) return false;
+            panel.centerLat = lat;
+            panel.centerLon = lon;
+            panel.centerLabel = label;
+            panel._selectedMmsi = null;
+            saveState();
+            renderAllPanels();   // ensureAisConnection re-subscribes with the new bounding box
+            return true;
+        }
+
+        async function commitVesselCenter(pid, raw) {
+            const panel = state.panels[pid];
+            if (!panel || panel.type !== 'vessels') return;
+            const txt = String(raw || '').trim();
+            if (!txt) return;
+            const m = txt.match(/^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/);
+            if (m) {
+                const lat = Number(m[1]), lon = Number(m[2]);
+                if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+                    updateStatus('VESSELS · LAT/LON OUT OF RANGE', 'error');
+                    return;
+                }
+                applyVesselCenter(panel, lat, lon, `${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+                return;
+            }
+            updateStatus(`VESSELS · GEOCODING "${truncate(txt, 32)}"…`, 'normal');
+            try {
+                const hit = await geocodeAddress(txt);
+                if (!hit) {
+                    updateStatus(`VESSELS · COULD NOT FIND "${truncate(txt, 32)}"`, 'error');
+                    return;
+                }
+                applyVesselCenter(panel, hit.lat, hit.lon, hit.label);
+                updateStatus(`VESSELS · CENTERED ON ${hit.label}`, 'normal');
+            } catch (e) {
+                console.warn('[VESSELS] geocode failed:', e);
+                updateStatus('VESSELS · GEOCODE FAILED — try lat, lon instead', 'error');
+            }
+        }
+
+        function setAisStreamKey(raw) {
+            const key = String(raw || '').trim();
+            state.config = state.config || {};
+            if (state.config.aisStreamKey === key) return;
+            state.config.aisStreamKey = key;
+            // Key change invalidates the current stream; drop cached vessels and reconnect.
+            aisVessels.clear();
+            saveState();
+            renderAllPanels();   // ensureAisConnection picks up the new key
+        }
+
+        function selectVesselFromList(pid, mmsi) {
+            const panel = state.panels[pid];
+            if (!panel || panel.type !== 'vessels') return;
+            panel._selectedMmsi = panel._selectedMmsi === mmsi ? null : mmsi;
+            repaintVesselPanel(pid);
         }
 
         function setPredictionFilter(pid, filter) {
