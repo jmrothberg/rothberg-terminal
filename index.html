@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.7.3</title>
+    <title>ROTHBERG TERMINAL v1.7.4</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1233,7 +1233,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.7.3</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.7.4</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -4673,9 +4673,22 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     }
                 }, 12000);
             };
+            ws.binaryType = 'arraybuffer';
             ws.onmessage = (ev) => {
-                try { handleAisMessage(JSON.parse(ev.data)); }
-                catch (e) { console.warn('[VESSELS] bad frame:', e, String(ev.data).slice(0, 200)); }
+                // Count at the transport level (before JSON parse) so aisRawCount === 0 reliably
+                // means "the server sent us nothing", not "we failed to parse what it sent".
+                aisRawCount++;
+                aisKeyVerified = true;
+                if (aisDataWatchdog) { clearTimeout(aisDataWatchdog); aisDataWatchdog = null; }
+                let text;
+                if (typeof ev.data === 'string') text = ev.data;
+                else if (ev.data instanceof ArrayBuffer) text = new TextDecoder().decode(ev.data);
+                else { text = String(ev.data); }
+                let msg;
+                try { msg = JSON.parse(text); }
+                catch (e) { console.warn('[VESSELS] non-JSON frame:', text.slice(0, 200)); return; }
+                if (aisRawCount === 1) console.info('[VESSELS] first raw frame:', text.slice(0, 240));
+                handleAisMessage(msg);
             };
             ws.onerror = (e) => { console.warn('[VESSELS] websocket error', e); };
             ws.onclose = (ev) => {
@@ -4707,15 +4720,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             aisConn = null;
         }
 
-        /** Merge one aisstream frame into the shared vessel store (keyed by MMSI). */
+        /** Merge one parsed aisstream frame into the shared vessel store (keyed by MMSI). */
         function handleAisMessage(msg) {
             if (!msg || typeof msg !== 'object') return;
-            // Count EVERY frame (before any filtering) so we can tell "zero data from aisstream"
-            // apart from "data arriving but filtered out". The watchdog/diagnostics rely on this.
-            aisRawCount++;
-            aisKeyVerified = true;   // any frame at all proves the key + subscription are valid
-            if (aisDataWatchdog) { clearTimeout(aisDataWatchdog); aisDataWatchdog = null; }
-            if (aisRawCount === 1) console.info('[VESSELS] first raw frame:', JSON.stringify(msg).slice(0, 240));
             // aisstream error / non-vessel frames have no MetaData — surface them instead of
             // silently dropping (this is how "invalid key" / "malformed subscription" show up).
             if (!msg.MetaData) {
@@ -9700,11 +9707,17 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             };
             try { ws = new WebSocket(AIS_WS_URL); }
             catch (e) { finish('VESSELS · key test could not open a socket', false); return; }
+            ws.binaryType = 'arraybuffer';
             ws.onopen = () => { try { ws.send(JSON.stringify({ APIKey: key, BoundingBoxes: [[[-90, -180], [90, 180]]] })); } catch (_e) {} };
             ws.onmessage = (ev) => {
                 raw++;
+                let text;
+                if (typeof ev.data === 'string') text = ev.data;
+                else if (ev.data instanceof ArrayBuffer) text = new TextDecoder().decode(ev.data);
+                else text = String(ev.data);
+                if (raw === 1) console.info('[VESSELS] key test first frame:', text.slice(0, 240));
                 try {
-                    const m = JSON.parse(ev.data);
+                    const m = JSON.parse(text);
                     if (!m.MetaData) { const e = m.error || m.Error || m.message; if (typeof e === 'string') errText = e; }
                     else vessels++;
                 } catch (_e) {}
