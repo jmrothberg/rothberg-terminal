@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.7.1</title>
+    <title>ROTHBERG TERMINAL v1.7.2</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1233,7 +1233,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.7.1</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.7.2</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1899,7 +1899,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         let aisReconnectTimer = null;
         let aisReconnectDelay = 2000;
         let aisRepaintTimer = null;
-        let aisMsgCount = 0;            // total AIS frames received this connection (diagnostics)
+        let aisMsgCount = 0;            // vessel frames plotted this connection (diagnostics)
+        let aisRawCount = 0;            // ALL frames received this connection (incl. base stations / errors)
+        let aisDataWatchdog = null;     // fires if no frame arrives shortly after subscribing
         let aisLastError = '';          // last error text from an aisstream error frame
 
         const CALENDAR_CATEGORIES = [
@@ -4650,6 +4652,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 // aisstream closes the socket if no subscription arrives within 3s, so send now.
                 const sub = { APIKey: key, BoundingBoxes: boxes };
                 aisMsgCount = 0;
+                aisRawCount = 0;
                 aisLastError = '';
                 try {
                     ws.send(JSON.stringify(sub));
@@ -4659,6 +4662,15 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 }
                 aisReconnectDelay = 2000;   // reset backoff on a clean open
                 setAisStatus('subscribed');  // 'live' is set once the first vessel frame arrives
+                // Watchdog: if aisstream sends literally nothing shortly after a clean subscribe,
+                // the key is almost certainly not active yet (the socket stays open silently).
+                if (aisDataWatchdog) clearTimeout(aisDataWatchdog);
+                aisDataWatchdog = setTimeout(() => {
+                    if (aisConn?.ws === ws && aisRawCount === 0) {
+                        console.warn('[VESSELS] no frames 12s after subscribe — API key likely inactive / unconfirmed, or aisstream outage');
+                        setAisStatus('nodata');
+                    }
+                }, 12000);
             };
             ws.onmessage = (ev) => {
                 try { handleAisMessage(JSON.parse(ev.data)); }
@@ -4685,6 +4697,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
         function teardownAisConnection() {
             if (aisReconnectTimer) { clearTimeout(aisReconnectTimer); aisReconnectTimer = null; }
+            if (aisDataWatchdog) { clearTimeout(aisDataWatchdog); aisDataWatchdog = null; }
             if (aisConn && aisConn.ws) {
                 const ws = aisConn.ws;
                 ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null;
@@ -4696,6 +4709,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         /** Merge one aisstream frame into the shared vessel store (keyed by MMSI). */
         function handleAisMessage(msg) {
             if (!msg || typeof msg !== 'object') return;
+            // Count EVERY frame (before any filtering) so we can tell "zero data from aisstream"
+            // apart from "data arriving but filtered out". The watchdog/diagnostics rely on this.
+            aisRawCount++;
+            if (aisDataWatchdog) { clearTimeout(aisDataWatchdog); aisDataWatchdog = null; }
+            if (aisRawCount === 1) console.info('[VESSELS] first raw frame:', JSON.stringify(msg).slice(0, 240));
             // aisstream error / non-vessel frames have no MetaData — surface them instead of
             // silently dropping (this is how "invalid key" / "malformed subscription" show up).
             if (!msg.MetaData) {
@@ -5475,6 +5493,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const keyStatus = !keyVal ? 'no key — paste one to go live'
                     : aisStatus === 'live' ? `connected · live · ${aisMsgCount} frames`
                     : aisStatus === 'subscribed' ? 'connected · waiting for data…'
+                    : aisStatus === 'nodata' ? 'connected but no data — key likely not active yet'
                     : aisStatus === 'connecting' ? 'connecting…'
                     : aisStatus === 'error' ? `rejected${aisLastError ? ': ' + aisLastError : ''}`
                     : aisStatus === 'disconnected' ? 'disconnected — retrying'
@@ -8781,6 +8800,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
             if (aisStatus === 'connecting') return `<div class="loading">CONNECTING TO AIS STREAM…</div>`;
             if (aisStatus === 'subscribed') return `<div class="loading">CONNECTED — waiting for AIS data in this area…</div>`;
+            if (aisStatus === 'nodata') {
+                return `<div class="error-message">CONNECTED, but aisstream sent <strong>no data</strong>. The socket and subscription are fine — this almost always means the <strong>API key isn't active yet</strong>. Sign in at <a href="https://aisstream.io/" target="_blank" rel="noopener">aisstream.io</a>, confirm your email / account, make sure the key is enabled, then re-paste it. (Less commonly: a temporary aisstream outage.)</div>`;
+            }
             if (aisStatus === 'disconnected' || aisStatus === 'error') return `<div class="error-message">AIS STREAM DISCONNECTED — reconnecting… (check the key if this persists).</div>`;
             return null;
         }
