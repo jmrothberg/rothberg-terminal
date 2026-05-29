@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.7.0</title>
+    <title>ROTHBERG TERMINAL v1.7.1</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1233,7 +1233,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.7.0</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.7.1</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1899,6 +1899,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         let aisReconnectTimer = null;
         let aisReconnectDelay = 2000;
         let aisRepaintTimer = null;
+        let aisMsgCount = 0;            // total AIS frames received this connection (diagnostics)
+        let aisLastError = '';          // last error text from an aisstream error frame
 
         const CALENDAR_CATEGORIES = [
             { key: 'all',    label: 'All' },
@@ -4642,20 +4644,31 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             setAisStatus('connecting');
             ws.onopen = () => {
                 if (aisConn?.ws !== ws) { try { ws.close(); } catch (_e) {} return; }
-                const sub = {
-                    APIKey: key,
-                    BoundingBoxes: boxes,
-                    FilterMessageTypes: ['PositionReport', 'ShipStaticData'],
-                };
-                try { ws.send(JSON.stringify(sub)); } catch (e) { console.warn('[VESSELS] subscribe send failed:', e); }
+                // No FilterMessageTypes — subscribe to every message in the box and filter
+                // client-side. (A mismatched filter value is a silent "zero messages" trap;
+                // and Class-B pleasure craft use different message types than Class A.)
+                // aisstream closes the socket if no subscription arrives within 3s, so send now.
+                const sub = { APIKey: key, BoundingBoxes: boxes };
+                aisMsgCount = 0;
+                aisLastError = '';
+                try {
+                    ws.send(JSON.stringify(sub));
+                    console.info('[VESSELS] subscribed', JSON.stringify(boxes), 'key …' + key.slice(-4));
+                } catch (e) {
+                    console.warn('[VESSELS] subscribe send failed:', e);
+                }
                 aisReconnectDelay = 2000;   // reset backoff on a clean open
-                setAisStatus('live');
+                setAisStatus('subscribed');  // 'live' is set once the first vessel frame arrives
             };
-            ws.onmessage = (ev) => { try { handleAisMessage(JSON.parse(ev.data)); } catch (_e) { /* ignore malformed frame */ } };
-            ws.onerror = () => { /* onclose handles reconnect */ };
-            ws.onclose = () => {
+            ws.onmessage = (ev) => {
+                try { handleAisMessage(JSON.parse(ev.data)); }
+                catch (e) { console.warn('[VESSELS] bad frame:', e, String(ev.data).slice(0, 200)); }
+            };
+            ws.onerror = (e) => { console.warn('[VESSELS] websocket error', e); };
+            ws.onclose = (ev) => {
                 if (aisConn?.ws !== ws) return;   // superseded by a newer connection
-                setAisStatus('disconnected');
+                console.warn(`[VESSELS] socket closed (code ${ev.code}${ev.reason ? ', ' + ev.reason : ''}); received ${aisMsgCount} frames`);
+                setAisStatus(aisLastError ? 'error' : 'disconnected');
                 scheduleAisReconnect();
             };
         }
@@ -4683,9 +4696,30 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         /** Merge one aisstream frame into the shared vessel store (keyed by MMSI). */
         function handleAisMessage(msg) {
             if (!msg || typeof msg !== 'object') return;
-            const meta = msg.MetaData || {};
+            // aisstream error / non-vessel frames have no MetaData — surface them instead of
+            // silently dropping (this is how "invalid key" / "malformed subscription" show up).
+            if (!msg.MetaData) {
+                const err = msg.error || msg.Error || msg.message || msg.Message;
+                if (err && typeof err === 'string') {
+                    console.warn('[VESSELS] aisstream error frame:', err);
+                    aisLastError = err;
+                    setAisStatus('error');
+                } else if (aisMsgCount < 3) {
+                    console.info('[VESSELS] frame without MetaData:', msg);
+                }
+                return;
+            }
+            const meta = msg.MetaData;
             const mmsi = meta.MMSI != null ? String(meta.MMSI) : null;
             if (!mmsi) return;
+            // Only plot actual ships: MMSI MID 200-799. Skips base stations (00x),
+            // SAR aircraft (111), aids-to-navigation (99x), etc.
+            if (!/^[2-7]/.test(mmsi)) return;
+
+            aisMsgCount++;
+            if (aisMsgCount === 1) console.info('[VESSELS] first AIS frame received:', msg.MessageType, 'MMSI', mmsi);
+            if (aisStatus !== 'live') setAisStatus('live');
+
             const lat = Number(meta.latitude);
             const lon = Number(meta.longitude);
             const cur = aisVessels.get(mmsi) || {};
@@ -4694,28 +4728,31 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             const metaName = (meta.ShipName || '').trim();
             if (metaName) v.name = metaName;
 
-            if (msg.MessageType === 'PositionReport') {
-                const pr = msg.Message?.PositionReport || {};
-                if (Number.isFinite(Number(pr.Sog))) v.sog = Number(pr.Sog);
-                if (Number.isFinite(Number(pr.Cog))) v.cog = Number(pr.Cog);
-                const th = Number(pr.TrueHeading);
-                if (Number.isFinite(th) && th >= 0 && th < 360) v.heading = th;
-                if (pr.NavigationalStatus != null) v.navStatus = Number(pr.NavigationalStatus);
-            } else if (msg.MessageType === 'ShipStaticData') {
-                const sd = msg.Message?.ShipStaticData || {};
-                if ((sd.Name || '').trim()) v.name = sd.Name.trim();
-                if (sd.Type != null) {
-                    v.shipTypeCode = Number(sd.Type);
-                    v.group = classifyVesselType(v.shipTypeCode);
-                }
-                if ((sd.Destination || '').trim()) v.dest = sd.Destination.trim();
-                if ((sd.CallSign || '').trim()) v.callsign = sd.CallSign.trim();
-                if (sd.ImoNumber != null) v.imo = Number(sd.ImoNumber);
-                const dim = sd.Dimension || {};
+            const type = msg.MessageType;
+            const inner = (msg.Message && msg.Message[type]) || {};
+            if (type === 'ShipStaticData' || type === 'StaticDataReport') {
+                // Class A static (ShipStaticData) and Class B static (StaticDataReport, split into
+                // ReportA = name, ReportB = type/dimensions).
+                const rb = inner.ReportB || {};
+                const ra = inner.ReportA || {};
+                const nm = (inner.Name || ra.Name || '').trim();
+                if (nm) v.name = nm;
+                const typeCode = inner.Type != null ? inner.Type : rb.ShipType;
+                if (typeCode != null) { v.shipTypeCode = Number(typeCode); v.group = classifyVesselType(v.shipTypeCode); }
+                if ((inner.Destination || '').trim()) v.dest = inner.Destination.trim();
+                if ((inner.CallSign || rb.CallSign || '').trim()) v.callsign = (inner.CallSign || rb.CallSign).trim();
+                if (inner.ImoNumber != null) v.imo = Number(inner.ImoNumber);
+                const dim = inner.Dimension || rb.Dimension || {};
                 const a = Number(dim.A), b = Number(dim.B);
                 if (Number.isFinite(a) && Number.isFinite(b) && (a + b) > 0) v.lengthM = Math.round(a + b);
             } else {
-                return;   // ignore other message types
+                // Any position-report variant: Class A PositionReport, Class B
+                // Standard/Extended position reports — all carry Sog/Cog/TrueHeading.
+                if (Number.isFinite(Number(inner.Sog))) v.sog = Number(inner.Sog);
+                if (Number.isFinite(Number(inner.Cog))) v.cog = Number(inner.Cog);
+                const th = Number(inner.TrueHeading);
+                if (Number.isFinite(th) && th >= 0 && th < 360) v.heading = th;
+                if (inner.NavigationalStatus != null) v.navStatus = Number(inner.NavigationalStatus);
             }
             if (v.group == null && v.shipTypeCode != null) v.group = classifyVesselType(v.shipTypeCode);
             aisVessels.set(mmsi, v);
@@ -5436,9 +5473,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     : (c.label || `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`);
                 const keyVal = getAisKey();
                 const keyStatus = !keyVal ? 'no key — paste one to go live'
-                    : aisStatus === 'live' ? 'connected · live'
+                    : aisStatus === 'live' ? `connected · live · ${aisMsgCount} frames`
+                    : aisStatus === 'subscribed' ? 'connected · waiting for data…'
                     : aisStatus === 'connecting' ? 'connecting…'
-                    : aisStatus === 'disconnected' || aisStatus === 'error' ? 'disconnected — retrying'
+                    : aisStatus === 'error' ? `rejected${aisLastError ? ': ' + aisLastError : ''}`
+                    : aisStatus === 'disconnected' ? 'disconnected — retrying'
                     : 'key set';
                 vesselsSection = `
                     <div class="tray-row">
@@ -8737,7 +8776,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             if (!key) {
                 return `<div class="flight-empty">No aisstream.io key set. Open this panel's tray → <strong>AIS KEY</strong>, paste a free key from <a href="https://aisstream.io/" target="_blank" rel="noopener">aisstream.io</a> (free signup, no payment). Stored locally in your browser.</div>`;
             }
+            if (aisStatus === 'error' && aisLastError) {
+                return `<div class="error-message">AIS STREAM REJECTED: ${escapeHTML(aisLastError)} — check that the key is valid &amp; active on aisstream.io.</div>`;
+            }
             if (aisStatus === 'connecting') return `<div class="loading">CONNECTING TO AIS STREAM…</div>`;
+            if (aisStatus === 'subscribed') return `<div class="loading">CONNECTED — waiting for AIS data in this area…</div>`;
             if (aisStatus === 'disconnected' || aisStatus === 'error') return `<div class="error-message">AIS STREAM DISCONNECTED — reconnecting… (check the key if this persists).</div>`;
             return null;
         }
