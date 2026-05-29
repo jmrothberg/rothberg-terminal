@@ -8640,7 +8640,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             function draw() {
                 drawScheduled = false;
                 const panel = state.panels[pid];
-                if (!panel || panel.type !== adapter.panelType) return;
+                if (!panel || geoMapAdapterFor(panel) !== adapter) return;
                 const { c, r, pxPerNm } = projection();
                 ctx.clearRect(0, 0, cssW, cssH);
 
