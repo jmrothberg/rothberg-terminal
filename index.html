@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.7.6</title>
+    <title>ROTHBERG TERMINAL v1.7.7</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1233,7 +1233,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.7.6</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.7.7</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1825,15 +1825,15 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             if (r <= 2500) return 4;
             return 3;
         }
-        // SEISMIC / TROPICAL CYCLONES / EARTH EVENTS — MAP display (regional/global feeds,
-        // so larger range rings than planes/ships). Center is geocodable like the others.
+        // SEISMIC / TROPICAL CYCLONES / EARTH EVENTS — MAP drill-down from the globe.
+        // Same scale as the FLIGHTS / VESSELS maps so the zoom feels consistent.
         const EVENT_MAP_RADII = [
-            { key: 250,  label: '250 nm'  },
-            { key: 500,  label: '500 nm'  },
-            { key: 1000, label: '1000 nm' },
-            { key: 2000, label: '2000 nm' },
+            { key: 5,  label: '5 nm'  },
+            { key: 10, label: '10 nm' },
+            { key: 25, label: '25 nm' },
+            { key: 50, label: '50 nm' },
         ];
-        const EVENT_MAP_DEFAULT_RADIUS = 1000;
+        const EVENT_MAP_DEFAULT_RADIUS = 25;
         const EVENT_MAP_DEFAULT_CENTER = { lat: 20, lon: 0, label: 'Lat 20, Lon 0' };
         // Process-wide tile cache (per session). Browser HTTP cache handles longer-term
         // persistence; this map skips creating new Image() elements on every redraw and
@@ -10222,7 +10222,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             panel.geoCenterLat = pt.lat;
             panel.geoCenterLon = pt.lon;
             panel.geoCenterLabel = geoEventLabel(pt) || `${pt.lat.toFixed(2)}, ${pt.lon.toFixed(2)}`;
-            if (!Number.isFinite(panel.geoRadiusNm)) panel.geoRadiusNm = 500;
+            // Clamp to a valid scale (also fixes panels saved with the old larger radii).
+            if (!EVENT_MAP_RADII.some(x => x.key === panel.geoRadiusNm)) panel.geoRadiusNm = EVENT_MAP_DEFAULT_RADIUS;
             panel._selectedGeoId = pt.id || null;
             saveState();
             renderAllPanels();
