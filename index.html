@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.7.8</title>
+    <title>ROTHBERG TERMINAL v1.7.9</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1233,7 +1233,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.7.8</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.7.9</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -2502,8 +2502,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     // Extended-hours
                     preMarketPrice, preMarketChange, preMarketChangePercent,
                     postMarketPrice, postMarketChange, postMarketChangePercent,
-                    preMarketVolume:  preHas  ? preVol  : null,
-                    postMarketVolume: postHas ? postVol : null,
+                    preMarketVolume:  preHas  ? preVol  : (Number.isFinite(meta.preMarketVolume)  ? meta.preMarketVolume  : null),
+                    postMarketVolume: postHas ? postVol : (Number.isFinite(meta.postMarketVolume) ? meta.postMarketVolume : null),
                     preMarketTime:  meta.preMarketTime  ?? lastPreTime  ?? null,
                     postMarketTime: meta.postMarketTime ?? lastPostTime ?? null,
                     closes: closeSeries,
@@ -2808,6 +2808,18 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const lows = (qi.low || []).map(v => v == null ? NaN : Number(v));
                 const vols = (qi.volume || []).map(v => v == null ? NaN : Number(v));
                 const timestamps = r.timestamp || [];
+                const meta = r.meta || {};
+                const tp = meta.currentTradingPeriod || null;
+                const sessionWindows = (includePrePost && tp && tp.regular) ? {
+                    pre:     tp.pre     ? { start: tp.pre.start,     end: tp.pre.end     } : null,
+                    regular:                { start: tp.regular.start, end: tp.regular.end },
+                    post:    tp.post    ? { start: tp.post.start,    end: tp.post.end    } : null,
+                } : null;
+                // Sum from full bar series before dropping null closes — Yahoo often omits
+                // close on extended-hours bars but still reports volume there.
+                const sessionVolumes = sessionWindows
+                    ? sessionVolumesFromBars(timestamps, qi.volume || [], sessionWindows)
+                    : null;
                 // Align arrays: drop entries where close is NaN; carry OHLCV on same bars for candles + volume pane.
                 const cleanCloses = [];
                 const cleanOpens = [];
@@ -2830,8 +2842,6 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         cleanTs.push(timestamps[i]);
                     }
                 }
-                const meta = r.meta || {};
-                const tp = meta.currentTradingPeriod || null;
                 const out = {
                     closes: cleanCloses,
                     opens: cleanOpens,
@@ -2841,12 +2851,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     timestamps: cleanTs,
                     previousClose: meta.chartPreviousClose ?? meta.previousClose ?? null,
                     currency: meta.currency || null,
-                    // Session windows — only relevant when includePrePost is on.
-                    sessionWindows: (includePrePost && tp && tp.regular) ? {
-                        pre:     tp.pre     ? { start: tp.pre.start,     end: tp.pre.end     } : null,
-                        regular:                { start: tp.regular.start, end: tp.regular.end },
-                        post:    tp.post    ? { start: tp.post.start,    end: tp.post.end    } : null,
-                    } : null,
+                    sessionWindows,
+                    sessionVolumes,
                     ts: Date.now(),
                 };
                 chartCache[key] = out;
@@ -2882,11 +2888,17 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 q.regularChange = q.change;
                 q.regularChangePercent = q.changePercent;
             }
-            if (chart.sessionWindows && tsIn.length && Array.isArray(chart.volumes) && chart.volumes.length === closes.length) {
-                const volAgg = sessionVolumesFromBars(tsIn, chart.volumes, chart.sessionWindows);
+            const volAgg = chart.sessionVolumes || (
+                chart.sessionWindows && tsIn.length && Array.isArray(chart.volumes) && chart.volumes.length === closes.length
+                    ? sessionVolumesFromBars(tsIn, chart.volumes, chart.sessionWindows)
+                    : null
+            );
+            if (volAgg) {
                 if (volAgg.regVol > 0) q.volume = volAgg.regVol;
-                q.preMarketVolume = volAgg.preHas ? volAgg.preVol : null;
-                q.postMarketVolume = volAgg.postHas ? volAgg.postVol : null;
+                // Only overwrite when we have a positive sum — never wipe fetchQuote pre/post vol
+                // when the close-filtered chart series missed extended-hours bars.
+                if (volAgg.preHas && volAgg.preVol > 0) q.preMarketVolume = volAgg.preVol;
+                if (volAgg.postHas && volAgg.postVol > 0) q.postMarketVolume = volAgg.postVol;
             }
             q.ts = Date.now();
             q.stale = false;
