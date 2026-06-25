@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.7.9</title>
+    <title>ROTHBERG TERMINAL v1.7.10</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1233,7 +1233,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.7.9</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.7.10</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1671,7 +1671,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         // still work because they fetch from CORS-open APIs directly.
         const PROXIES = [
             url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-            url => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`,
+            url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
             url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
         ];
         /** Each proxy attempt is aborted after this so hung third-party proxies cannot block the whole refresh. */
@@ -2353,6 +2353,88 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             throw lastErr || new Error('All proxies failed');
         }
 
+        /** Parse Nasdaq quote API volume strings like "636,695.256216". */
+        function parseNasdaqVolumeString(raw) {
+            if (raw == null || raw === '') return null;
+            if (typeof raw === 'number' && Number.isFinite(raw)) return raw > 0 ? raw : null;
+            const n = Number(String(raw).replace(/,/g, ''));
+            return Number.isFinite(n) && n > 0 ? n : null;
+        }
+
+        /** Map watchlist symbol to Nasdaq /info ticker (class shares use dots: BRK.B). Skips non-equities. */
+        function symbolForNasdaqApi(sym) {
+            const s = (sym || '').toUpperCase();
+            if (!s || s.endsWith('-USD') || s.endsWith('=X') || s.endsWith('=F') || s.startsWith('^')) return null;
+            return s.replace(/-/g, '.');
+        }
+
+        /**
+         * Yahoo 1m chart bars always report volume=0 during pre-market (price bars only).
+         * Nasdaq's public quote API exposes live PRE/AH session volume in primaryData.volume.
+         * Pass `qHint` (Yahoo quote) so summary fallback can use marketState when /info fails.
+         */
+        async function fetchNasdaqExtendedVolumes(symbol, qHint) {
+            const nasdaqSym = symbolForNasdaqApi(symbol);
+            if (!nasdaqSym) return null;
+            async function parseInfoResponse(data) {
+                const d = data?.data;
+                if (!d) return null;
+                const status = (d.marketStatus || '').toLowerCase();
+                const vol = parseNasdaqVolumeString(d.primaryData?.volume);
+                if (vol == null) return null;
+                const out = { preMarketVolume: null, postMarketVolume: null };
+                if (status.includes('pre')) out.preMarketVolume = vol;
+                else if (status.includes('after')) out.postMarketVolume = vol;
+                return (out.preMarketVolume || out.postMarketVolume) ? out : null;
+            }
+            async function parseSummaryResponse(data, ms) {
+                const d = data?.data;
+                if (!d) return null;
+                const vol = parseNasdaqVolumeString(d.summaryData?.ShareVolume?.value);
+                if (vol == null) return null;
+                const out = { preMarketVolume: null, postMarketVolume: null };
+                if (ms === 'PRE') out.preMarketVolume = vol;
+                else if (ms === 'POST' || ms === 'POSTPOST') out.postMarketVolume = vol;
+                return (out.preMarketVolume || out.postMarketVolume) ? out : null;
+            }
+            async function fetchJson(url) {
+                try {
+                    const res = await fetch(url, { cache: 'no-store', headers: { Accept: 'application/json' } });
+                    if (res.ok) return res.json();
+                } catch (_) { /* CORS — fall through */ }
+                return fetchViaProxy(url);
+            }
+            for (const assetclass of ['stocks', 'etf']) {
+                const infoUrl = `https://api.nasdaq.com/api/quote/${encodeURIComponent(nasdaqSym)}/info?assetclass=${assetclass}`;
+                try {
+                    const out = await parseInfoResponse(await fetchJson(infoUrl));
+                    if (out) return out;
+                } catch (_) { /* try summary / next assetclass */ }
+                const ms = (qHint?.marketState || '').toUpperCase();
+                if (ms === 'PRE' || ms === 'POST' || ms === 'POSTPOST') {
+                    const sumUrl = `https://api.nasdaq.com/api/quote/${encodeURIComponent(nasdaqSym)}/summary?assetclass=${assetclass}`;
+                    try {
+                        const out = await parseSummaryResponse(await fetchJson(sumUrl), ms);
+                        if (out) return out;
+                    } catch (_) { /* try next assetclass */ }
+                }
+            }
+            return null;
+        }
+
+        /** Fill missing PRE/AH volume on a quote object; preserves values already set for the day. */
+        async function enrichExtendedVolumesFromNasdaq(symbol, q) {
+            if (!q) return q;
+            const needPre  = q.preMarketPrice  != null && (!q.preMarketVolume  || q.preMarketVolume  <= 0);
+            const needPost = q.postMarketPrice != null && (!q.postMarketVolume || q.postMarketVolume <= 0);
+            if (!needPre && !needPost) return q;
+            const ext = await fetchNasdaqExtendedVolumes(symbol, q);
+            if (!ext) return q;
+            if (needPre  && ext.preMarketVolume  > 0) q.preMarketVolume  = ext.preMarketVolume;
+            if (needPost && ext.postMarketVolume > 0) q.postMarketVolume = ext.postMarketVolume;
+            return q;
+        }
+
         /** Sum pre / regular / post volume from 1m bar series + session windows (Yahoo currentTradingPeriod). */
         function sessionVolumesFromBars(timestamps, volumes, sessionWindows) {
             const out = { regVol: 0, preVol: 0, postVol: 0, preHas: false, postHas: false };
@@ -2482,7 +2564,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     else marketState = 'CLOSED';
                 }
 
-                return {
+                const result = {
                     // Canonical "regular" snapshot — never overwritten by extended toggle
                     price: regularPrice,
                     change: regularChange,
@@ -2502,13 +2584,15 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     // Extended-hours
                     preMarketPrice, preMarketChange, preMarketChangePercent,
                     postMarketPrice, postMarketChange, postMarketChangePercent,
-                    preMarketVolume:  preHas  ? preVol  : (Number.isFinite(meta.preMarketVolume)  ? meta.preMarketVolume  : null),
-                    postMarketVolume: postHas ? postVol : (Number.isFinite(meta.postMarketVolume) ? meta.postMarketVolume : null),
+                    preMarketVolume:  (preHas && preVol > 0) ? preVol : (Number.isFinite(meta.preMarketVolume) && meta.preMarketVolume > 0 ? meta.preMarketVolume : null),
+                    postMarketVolume: (postHas && postVol > 0) ? postVol : (Number.isFinite(meta.postMarketVolume) && meta.postMarketVolume > 0 ? meta.postMarketVolume : null),
                     preMarketTime:  meta.preMarketTime  ?? lastPreTime  ?? null,
                     postMarketTime: meta.postMarketTime ?? lastPostTime ?? null,
                     closes: closeSeries,
                     timestamps,
                 };
+                await enrichExtendedVolumesFromNasdaq(symbol, result);
+                return result;
             } catch (err) {
                 return null;
             }
@@ -4069,8 +4153,18 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             for (let i = 0; i < symbols.length; i += batchSize) {
                 const batch = symbols.slice(i, i + batchSize);
                 await Promise.all(batch.map(async sym => {
+                    const prev = quoteCache[sym];
                     const q = await fetchQuoteWithFallback(sym);
                     if (q) {
+                        // Keep PRE/AH volume cached for the day once Nasdaq filled it (Yahoo never reports pre bar vol).
+                        if (prev) {
+                            if ((!q.preMarketVolume || q.preMarketVolume <= 0) && prev.preMarketVolume > 0) {
+                                q.preMarketVolume = prev.preMarketVolume;
+                            }
+                            if ((!q.postMarketVolume || q.postMarketVolume <= 0) && prev.postMarketVolume > 0) {
+                                q.postMarketVolume = prev.postMarketVolume;
+                            }
+                        }
                         quoteCache[sym] = { ...q, ts: Date.now(), stale: false };
                         if (q.shortName) symbolNameCache[sym] = q.shortName;
                     } else if (quoteCache[sym]) {
@@ -6308,6 +6402,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 q && q.shortName && q.shortName !== sym ? q.shortName : '';
             renderDrilldownPrice(sym);
             renderDrilldownRanges('1d', 'ticker', 'line');
+            // Yahoo pre-market bars have price but volume=0; Nasdaq has live PRE/AH volume.
+            void enrichExtendedVolumesFromNasdaq(sym, quoteCache[sym]).then(() => {
+                if (currentDrilldown && currentDrilldown.symbol === sym) renderDrilldownPrice(sym);
+            });
             document.getElementById('ddChart').innerHTML = '<div class="loading">LOADING CHART…</div>';
             document.getElementById('ddStats').innerHTML = '<div class="loading">LOADING FUNDAMENTALS…</div>';
             document.getElementById('ddNews').innerHTML = '<div class="loading">LOADING NEWS…</div>';

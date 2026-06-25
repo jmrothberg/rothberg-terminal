@@ -8,7 +8,7 @@ A single-file, browser-only clone of the Bloomberg Terminal — phosphor-green m
 
 > Click the screenshot or the launch link above to open the live terminal in your browser. No install, no signup, no keys.
 
-**Release:** the live header and browser tab show **v1.7.9** so you can confirm you are on the current build after a refresh or deploy.
+**Release:** the live header and browser tab show **v1.7.10** so you can confirm you are on the current build after a refresh or deploy.
 
 ---
 
@@ -181,7 +181,7 @@ The broader `Energy` chip remains a curated Google-News search (`crude oil OPEC 
 
 `WATCHLIST` and `INDICES` panels have an `EXT HRS` toggle in the tray (per-panel — each panel remembers its own setting). When ON and the market is in a pre-market or after-hours session, the row swaps to show the extended-session price, change, and volume, with a gold `PRE` or `AH` badge next to the price and a `REG CLOSE $XXX.XX` tag in the meta row so the regular close is never lost. The panel title gains a gold `· EXT` marker. During regular hours with the toggle ON, rows show a dim `REG` badge but display normal regular-session values. Toggle OFF to hide badges and extended data entirely. Backed by Yahoo Finance's `includePrePost=true` chart endpoint.
 
-**How PRE / AH numbers are computed:** Extended **price** (when bars exist) is the latest 1m close inside Yahoo's pre-market or post-market window (`currentTradingPeriod`); volume is summed over those bars. If the series is missing, the code falls back to `meta.preMarketPrice` / `meta.postMarketPrice` only when Yahoo's timestamp sits inside that window. **PRE dollar / percent change** is vs **`regularMarketPrice`** (last official regular close), not vs `chartPreviousClose` — the chart prior close is what we use for the **completed session's REG** day move and can sit one session behind the close you want for pre-market, which used to look like “gain vs two days ago.” **After-hours** change uses the same regular close anchor.
+**How PRE / AH numbers are computed:** Extended **price** (when bars exist) is the latest 1m close inside Yahoo's pre-market or post-market window (`currentTradingPeriod`). **PRE volume** is not present on Yahoo's 1m bars (they report price with volume=0); when available, live pre-market share volume is filled from Nasdaq's public quote API. **AH volume** is summed from Yahoo bars when present (often a single lump bar at the post open). If the series is missing, the code falls back to `meta.preMarketPrice` / `meta.postMarketPrice` only when Yahoo's timestamp sits inside that window. **PRE dollar / percent change** is vs **`regularMarketPrice`** (last official regular close), not vs `chartPreviousClose` — the chart prior close is what we use for the **completed session's REG** day move and can sit one session behind the close you want for pre-market, which used to look like “gain vs two days ago.” **After-hours** change uses the same regular close anchor.
 
 ### Interactions
 
