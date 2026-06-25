@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.7.7</title>
+    <title>ROTHBERG TERMINAL v1.7.8</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1233,7 +1233,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.7.7</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.7.8</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1312,6 +1312,7 @@ table; HEAT MAP shows the sector treemap for the same symbols
                     <pre>Click any equity/index/crypto/commodity/forex/bond row to
 open a full-screen drilldown:
   - Multi-range chart (1D/5D/1M/3M/YTD/1Y/5Y) + prev close
+  - Price row: REG / PRE / AH quotes each show session volume (VOL, PRE VOL, AH VOL)
   - Fundamentals grid: P/E, Forward P/E, Mkt Cap, EPS, PEG,
     P/S, EV, EV/Rev, Revenue, Net Income, 52W Hi/Lo
   - Sector / industry / exchange tags
@@ -2352,6 +2353,27 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             throw lastErr || new Error('All proxies failed');
         }
 
+        /** Sum pre / regular / post volume from 1m bar series + session windows (Yahoo currentTradingPeriod). */
+        function sessionVolumesFromBars(timestamps, volumes, sessionWindows) {
+            const out = { regVol: 0, preVol: 0, postVol: 0, preHas: false, postHas: false };
+            if (!Array.isArray(timestamps) || !Array.isArray(volumes) || !sessionWindows) return out;
+            const preWin = sessionWindows.pre;
+            const postWin = sessionWindows.post;
+            const regWin = sessionWindows.regular;
+            for (let i = 0; i < timestamps.length; i++) {
+                const t = timestamps[i];
+                const v = volumes[i];
+                if (preWin && t >= preWin.start && t < preWin.end) {
+                    if (Number.isFinite(v)) { out.preVol += v; out.preHas = true; }
+                } else if (postWin && t >= postWin.start && t < postWin.end) {
+                    if (Number.isFinite(v)) { out.postVol += v; out.postHas = true; }
+                } else if (regWin && t >= regWin.start && t < regWin.end) {
+                    if (Number.isFinite(v)) out.regVol += v;
+                }
+            }
+            return out;
+        }
+
         async function fetchQuote(symbol) {
             const encoded = encodeURIComponent(symbol);
             // 1m bars — 5m bars zero-out pre/post volume in Yahoo's feed.
@@ -2381,28 +2403,32 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const preWin  = tp.pre     ? [tp.pre.start,     tp.pre.end]     : null;
                 const postWin = tp.post    ? [tp.post.start,    tp.post.end]    : null;
                 const regWin  = tp.regular ? [tp.regular.start, tp.regular.end] : null;
-                let preVol = 0, postVol = 0, regVolFromBars = 0;
                 let lastPreClose = null, lastPreTime = null;
                 let lastPostClose = null, lastPostTime = null;
                 let lastRegClose = null;
                 let lastBarBeforePre = null;
-                let preHas = false, postHas = false;
                 for (let i = 0; i < timestamps.length; i++) {
                     const t = timestamps[i];
-                    const v = volumes[i];
                     const c = closes[i];
                     if (preWin && t >= preWin[0] && t < preWin[1]) {
-                        if (Number.isFinite(v)) { preVol += v; preHas = true; }
                         if (c != null) { lastPreClose = c; lastPreTime = t; }
                     } else if (postWin && t >= postWin[0] && t < postWin[1]) {
-                        if (Number.isFinite(v)) { postVol += v; postHas = true; }
                         if (c != null) { lastPostClose = c; lastPostTime = t; }
                     } else if (regWin && t >= regWin[0] && t < regWin[1]) {
-                        if (Number.isFinite(v)) regVolFromBars += v;
                         if (c != null) lastRegClose = c;
                     }
                     if (preWin && c != null && t < preWin[0]) lastBarBeforePre = c;
                 }
+                const volAgg = sessionVolumesFromBars(timestamps, volumes, {
+                    pre: preWin ? { start: preWin[0], end: preWin[1] } : null,
+                    post: postWin ? { start: postWin[0], end: postWin[1] } : null,
+                    regular: regWin ? { start: regWin[0], end: regWin[1] } : null,
+                });
+                const preVol = volAgg.preVol;
+                const postVol = volAgg.postVol;
+                const regVolFromBars = volAgg.regVol;
+                const preHas = volAgg.preHas;
+                const postHas = volAgg.postHas;
 
                 // PRE/AH anchors come from the bar series, not meta. Yahoo's chart
                 // endpoint at range=1d during PRE-market sometimes returns yesterday's
@@ -2855,6 +2881,12 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 q.regularPrice = last;
                 q.regularChange = q.change;
                 q.regularChangePercent = q.changePercent;
+            }
+            if (chart.sessionWindows && tsIn.length && Array.isArray(chart.volumes) && chart.volumes.length === closes.length) {
+                const volAgg = sessionVolumesFromBars(tsIn, chart.volumes, chart.sessionWindows);
+                if (volAgg.regVol > 0) q.volume = volAgg.regVol;
+                q.preMarketVolume = volAgg.preHas ? volAgg.preVol : null;
+                q.postMarketVolume = volAgg.postHas ? volAgg.postVol : null;
             }
             q.ts = Date.now();
             q.stale = false;
@@ -6535,13 +6567,18 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 ? new Date(t * 1000).toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })
                 : '';
             const buildExtRow = (tag, price, change, pct, vol, time) => {
-                if (price == null || change == null || pct == null) return '';
-                const eCls = change > 0 ? 'positive' : change < 0 ? 'negative' : 'neutral';
-                const eSign = change >= 0 ? '+' : '';
-                const ePctSign = pct >= 0 ? '+' : '';
-                const eChangeStr = `${eSign}${formatPriceFor(pf, change, true)} (${ePctSign}${pct.toFixed(2)}%)`;
+                if (price == null) return '';
+                let eChangeStr = '—';
+                let eCls = 'neutral';
+                if (change != null && pct != null && Number.isFinite(change) && Number.isFinite(pct)) {
+                    eCls = change > 0 ? 'positive' : change < 0 ? 'negative' : 'neutral';
+                    const eSign = change >= 0 ? '+' : '';
+                    const ePctSign = pct >= 0 ? '+' : '';
+                    eChangeStr = `${eSign}${formatPriceFor(pf, change, true)} (${ePctSign}${pct.toFixed(2)}%)`;
+                }
+                const volLabel = tag === 'PRE' ? 'PRE VOL' : tag === 'AH' ? 'AH VOL' : 'VOL';
                 const volStr = formatVolume(vol);
-                const volHTML = volStr ? `<span class="dd-ext-vol">VOL ${volStr}</span>` : '';
+                const volHTML = volStr ? `<span class="dd-ext-vol">${volLabel} ${volStr}</span>` : '';
                 const timeHTML = time ? `<span class="dd-ext-time">as of ${fmtTime(time)}</span>` : '';
                 return `
                     <div class="dd-price-ext">
@@ -6560,11 +6597,14 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             const regCloseTag = headlineIsRthClose
                 ? '<span class="dd-session-tag reg" title="Regular (RTH) session close vs prior close">REG</span>'
                 : '';
+            const regVolStr = (pf !== 'yield' && pf !== 'forex') ? formatVolume(q.volume) : null;
+            const regVolHTML = regVolStr ? `<span class="dd-ext-vol">VOL ${regVolStr}</span>` : '';
 
             el.innerHTML = `
                 ${regCloseTag}
                 <span class="dd-price">${formatPriceFor(pf, headPrice)}</span>
                 <span class="dd-change ${cls}">${changeStr}</span>
+                ${regVolHTML}
                 ${q.marketState ? `<span class="dd-market-state">${escapeHTML(q.marketState)}</span>` : ''}
                 ${extHTML}
             `;
