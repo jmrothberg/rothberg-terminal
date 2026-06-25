@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.7.10</title>
+    <title>ROTHBERG TERMINAL v1.7.11</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1233,7 +1233,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.7.10</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.7.11</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -2462,13 +2462,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1m&range=1d&includePrePost=true`;
             try {
                 const data = await fetchViaProxy(url);
-                const result = data?.chart?.result?.[0];
-                if (!result) return null;
-                const meta = result.meta || {};
-                const quote = result.indicators?.quote?.[0] || {};
+                const chartRow = data?.chart?.result?.[0];
+                if (!chartRow) return null;
+                const meta = chartRow.meta || {};
+                const quote = chartRow.indicators?.quote?.[0] || {};
                 const closes = quote.close || [];
                 const closeSeries = closes.filter(v => v != null);
-                const timestamps = result.timestamp || [];
+                const timestamps = chartRow.timestamp || [];
                 const regularPrice = meta.regularMarketPrice ?? closeSeries[closeSeries.length - 1] ?? null;
                 const previousClose = meta.chartPreviousClose ?? meta.previousClose ?? null;
                 if (regularPrice == null || previousClose == null) return null;
