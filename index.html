@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.8.2</title>
+    <title>ROTHBERG TERMINAL v1.8.3</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys except an optional aisstream.io key for faster AIS.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1254,7 +1254,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.8.2</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.8.3</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -2351,10 +2351,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         // Some proxies (notably codetabs) return HTTP 200 with a short "Edge: Too Many Requests"
         // body when rate-limited, which would otherwise pin that proxy as `currentProxy` and
         // starve subsequent calls. Detect and reject those degenerate bodies before committing.
-        async function fetchViaProxy(url, { parseJson = true, signal = null } = {}) {
+        async function fetchViaProxy(url, { parseJson = true, signal = null, cacheBust = true, timeoutMs = PROXY_FETCH_ATTEMPT_MS } = {}) {
             // Cache-bust the inner URL so neither the CORS proxy nor the browser HTTP
             // cache serves a stale response. Yahoo/Polymarket/RSS ignore unknown params.
-            const bustedUrl = url + (url.includes('?') ? '&' : '?') + '_t=' + Date.now();
+            // ADS-B path APIs (adsb.lol) return HTTP 400 if ?_t= is appended — pass cacheBust:false.
+            const bustedUrl = cacheBust
+                ? (url + (url.includes('?') ? '&' : '?') + '_t=' + Date.now())
+                : url;
             if (signal && signal.aborted) throw new DOMException('Aborted', 'AbortError');
             // Race every proxy. First usable body wins; losers are aborted.
             // Sequential 14s×3 waits used to freeze quotes whenever any one proxy hung.
@@ -2399,13 +2402,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     settled = true;
                     cleanup();
                     reject(lastErr || new Error('All proxies timed out'));
-                }, PROXY_FETCH_ATTEMPT_MS + 750));
+                }, timeoutMs + 750));
                 for (let i = 0; i < PROXIES.length; i++) {
                     const proxyIdx = (currentProxy + i) % PROXIES.length;
                     const attemptCtrl = new AbortController();
                     ctrls.push(attemptCtrl);
                     pending++;
-                    const tid = setTimeout(() => attemptCtrl.abort(), PROXY_FETCH_ATTEMPT_MS);
+                    const tid = setTimeout(() => attemptCtrl.abort(), timeoutMs);
                     timers.push(tid);
                     fetch(PROXIES[proxyIdx](bustedUrl), { signal: attemptCtrl.signal, cache: 'no-store' })
                         .then(async (res) => {
@@ -4721,13 +4724,6 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         // positional arrays in `states` with SI units (m, m/s) — converted in parse.
         const FLIGHTS_SOURCES = [
             {
-                // airplanes.live picked up most of the ex-ADS-B Exchange feeder network when ADSBX went paid
-                // in 2023, so US coverage is generally the strongest of the open feeds. Try it first.
-                name: 'airplanes.live',
-                url: (lat, lon, distNm) => `https://api.airplanes.live/v2/point/${lat.toFixed(5)}/${lon.toFixed(5)}/${Math.max(1, Math.round(distNm))}`,
-                parse: (raw) => normalizeAdsbStyle(raw),
-            },
-            {
                 name: 'adsb.lol',
                 url: (lat, lon, distNm) => `https://api.adsb.lol/v2/lat/${lat.toFixed(5)}/lon/${lon.toFixed(5)}/dist/${Math.max(1, Math.round(distNm))}`,
                 parse: (raw) => normalizeAdsbStyle(raw),
@@ -4735,6 +4731,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             {
                 name: 'adsb.fi',
                 url: (lat, lon, distNm) => `https://opendata.adsb.fi/api/v2/lat/${lat.toFixed(5)}/lon/${lon.toFixed(5)}/dist/${Math.max(1, Math.round(distNm))}`,
+                parse: (raw) => normalizeAdsbStyle(raw),
+            },
+            {
+                // airplanes.live picked up most of the ex-ADS-B Exchange feeder network when ADSBX went paid
+                // in 2023, so US coverage is generally the strongest of the open feeds — when Cloudflare allows it.
+                name: 'airplanes.live',
+                url: (lat, lon, distNm) => `https://api.airplanes.live/v2/point/${lat.toFixed(5)}/${lon.toFixed(5)}/${Math.max(1, Math.round(distNm))}`,
                 parse: (raw) => normalizeAdsbStyle(raw),
             },
             {
@@ -4754,11 +4757,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
         async function fetchOneFlightSource(src, lat, lon, distNm) {
             const url = src.url(lat, lon, distNm);
-            const bust = (url.includes('?') ? '&' : '?') + '_t=' + Date.now();
+            // Do not append ?_t= — adsb.lol returns HTTP 400 on unknown query params.
             const ctrl = new AbortController();
-            const tid = setTimeout(() => ctrl.abort(), PROXY_FETCH_ATTEMPT_MS);
+            const tid = setTimeout(() => ctrl.abort(), 8000);
             try {
-                const res = await fetch(url + bust, { cache: 'no-store', signal: ctrl.signal });
+                const res = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
                 if (res.ok) return await res.json();
                 console.warn(`[FLIGHTS] ${src.name} direct HTTP ${res.status}`);
             } catch (e) {
@@ -4767,7 +4770,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 clearTimeout(tid);
             }
             try {
-                return await fetchViaProxy(url);
+                return await fetchViaProxy(url, { cacheBust: false, timeoutMs: 15000 });
             } catch (e2) {
                 console.warn(`[FLIGHTS] ${src.name} proxy error:`, e2?.message || e2);
                 return null;
@@ -4775,53 +4778,53 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         }
 
         async function fetchAircraftNear(lat, lon, distNm) {
-            // Query every source in parallel and union by ICAO hex. The richest record
-            // for each aircraft wins (priority by source order: airplanes.live first,
-            // OpenSky last — it carries no type/operator metadata).
-            const results = await Promise.all(FLIGHTS_SOURCES.map(async (src) => {
+            // Try sources one at a time. First feed that returns aircraft wins — parallel
+            // proxy races used to abort allorigins while corsproxy returned a 401 JSON error.
+            const merged = new Map();
+            let anyOk = false;
+            for (const src of FLIGHTS_SOURCES) {
                 const raw = await fetchOneFlightSource(src, lat, lon, distNm);
-                if (raw == null) return { src: src.name, list: null };
+                if (raw == null) continue;
+                let list = null;
                 try {
-                    const list = src.parse(raw);
-                    if (!Array.isArray(list)) return { src: src.name, list: null };
-                    return { src: src.name, list };
+                    list = src.parse(raw);
                 } catch (e) {
                     console.warn(`[FLIGHTS] ${src.name} parse failed:`, e);
-                    return { src: src.name, list: null };
+                    continue;
                 }
-            }));
-            const succeeded = results.filter(r => r.list != null);
-            const counts = results.map(r => `${r.src}=${r.list == null ? 'fail' : r.list.length}`).join(', ');
-            if (!succeeded.length) {
-                console.warn(`[FLIGHTS] every source failed (${counts})`);
-                return null;
-            }
-            const merged = new Map();   // hex → ac (richer entry wins)
-            for (const { list } of succeeded) {
+                if (!Array.isArray(list)) continue;
+                anyOk = true;
                 for (const ac of list) {
                     if (!ac.hex) continue;
                     const prior = merged.get(ac.hex);
                     if (!prior) { merged.set(ac.hex, ac); continue; }
-                    // Replace prior only if the new record has metadata the prior lacks.
                     const priorScore = (prior.type ? 1 : 0) + (prior.operator ? 1 : 0) + (prior.reg ? 1 : 0);
                     const acScore    = (ac.type    ? 1 : 0) + (ac.operator    ? 1 : 0) + (ac.reg    ? 1 : 0);
                     if (acScore > priorScore) merged.set(ac.hex, ac);
                 }
+                if (merged.size > 0) break;
             }
-            // OpenSky uses a square bbox, so corners can exceed the requested radius by ~40%.
-            // Trim back to the actual circle so the "25 nm" label is honest.
+            if (!anyOk) {
+                console.warn('[FLIGHTS] every source failed');
+                return null;
+            }
             const filtered = Array.from(merged.values()).filter(ac => nmBetween(lat, lon, ac.lat, ac.lon) <= distNm * 1.05);
-            console.info(`[FLIGHTS] merged ${filtered.length} aircraft within ${distNm}nm (${counts})`);
+            console.info(`[FLIGHTS] ${filtered.length} aircraft within ${distNm}nm`);
             return filtered;
         }
 
         function normalizeAdsbStyle(raw) {
-            if (!raw || !Array.isArray(raw.ac)) {
-                console.warn('[FLIGHTS] adsb-style response missing ac array; top-level keys:', raw ? Object.keys(raw) : 'null', raw);
+            if (!raw || typeof raw !== 'object') {
+                console.warn('[FLIGHTS] adsb-style response missing body');
+                return [];
+            }
+            const arr = Array.isArray(raw.ac) ? raw.ac : (Array.isArray(raw.aircraft) ? raw.aircraft : null);
+            if (!arr) {
+                console.warn('[FLIGHTS] adsb-style response missing ac/aircraft array; top-level keys:', Object.keys(raw), raw);
                 return [];
             }
             const out = [];
-            for (const a of raw.ac) {
+            for (const a of arr) {
                 const lat = Number(a.lat), lon = Number(a.lon);
                 if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
                 const altRaw = a.alt_baro;
@@ -5002,7 +5005,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     const p = state.panels[pid];
                     if (!p) continue;
                     if (list === null) {
-                        p._aircraftFailed = true;
+                        // Keep last good tracks; only show error if we never loaded any.
+                        if (!Array.isArray(p._aircraft)) p._aircraftFailed = true;
                         continue;
                     }
                     p._aircraftFailed = false;
@@ -9214,7 +9218,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             const c = getFlightCenter(panel);
             if (list == null) {
                 return panel._aircraftFailed
-                    ? `<div class="error-message">ADS-B FEEDS UNAVAILABLE (adsb.lol / adsb.fi / OpenSky) — open DevTools console for details, then [R] to retry.</div>`
+                    ? `<div class="error-message">ADS-B FEED UNAVAILABLE — public aircraft servers blocked this browser. Press [R] to retry.</div>`
                     : `<div class="loading">LOADING NEARBY AIRCRAFT…</div>`;
             }
             if (getFlightDisplay(panel) === 'map') {
