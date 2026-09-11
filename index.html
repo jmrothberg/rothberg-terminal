@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.8.1</title>
+    <title>ROTHBERG TERMINAL v1.8.2</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys except an optional aisstream.io key for faster AIS.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1254,7 +1254,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.8.1</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.8.2</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -2393,6 +2393,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         reject(lastErr || new Error('All proxies failed'));
                     }
                 };
+                // Hard cap: a hung res.text() must not leave quotes waiting forever.
+                timers.push(setTimeout(() => {
+                    if (settled) return;
+                    settled = true;
+                    cleanup();
+                    reject(lastErr || new Error('All proxies timed out'));
+                }, PROXY_FETCH_ATTEMPT_MS + 750));
                 for (let i = 0; i < PROXIES.length; i++) {
                     const proxyIdx = (currentProxy + i) % PROXIES.length;
                     const attemptCtrl = new AbortController();
@@ -4250,34 +4257,192 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
         }
 
-        async function refreshQuotes() {
-            const symbols = collectAllSymbols();
-            const batchSize = 8;
-            for (let i = 0; i < symbols.length; i += batchSize) {
-                const batch = symbols.slice(i, i + batchSize);
-                await Promise.all(batch.map(async sym => {
-                    const prev = quoteCache[sym];
-                    const q = await fetchQuoteWithFallback(sym);
-                    if (q) {
-                        // Keep PRE/AH volume cached for the day once Nasdaq filled it (Yahoo never reports pre bar vol).
-                        if (prev) {
-                            if ((!q.preMarketVolume || q.preMarketVolume <= 0) && prev.preMarketVolume > 0) {
-                                q.preMarketVolume = prev.preMarketVolume;
-                            }
-                            if ((!q.postMarketVolume || q.postMarketVolume <= 0) && prev.postMarketVolume > 0) {
-                                q.postMarketVolume = prev.postMarketVolume;
-                            }
-                        }
-                        q.ts = Date.now();
-                        q.stale = false;
-                        quoteCache[sym] = q;
-                        if (q.shortName) symbolNameCache[sym] = q.shortName;
-                    } else if (quoteCache[sym]) {
-                        quoteCache[sym].stale = true;
-                    }
-                    paintQuotePanels();
-                }));
+        /** Yahoo v8 spark (works; v7 quote is 401). One call: prices + 5m sparkline for many tickers. */
+        function sparkRowToQuote(r) {
+            if (!r || typeof r !== 'object') return null;
+            const closesRaw = Array.isArray(r.close) ? r.close : [];
+            const tsRaw = Array.isArray(r.timestamp) ? r.timestamp : [];
+            const closes = [];
+            const timestamps = [];
+            for (let i = 0; i < closesRaw.length; i++) {
+                if (closesRaw[i] == null) continue;
+                const n = Number(closesRaw[i]);
+                if (!Number.isFinite(n)) continue;
+                closes.push(n);
+                if (tsRaw[i] != null) timestamps.push(tsRaw[i]);
             }
+            const last = closes.length ? closes[closes.length - 1] : NaN;
+            const price = Number.isFinite(Number(r.fulldayPrice)) ? Number(r.fulldayPrice) : last;
+            const prev = Number(r.chartPreviousClose ?? r.previousClose);
+            if (!Number.isFinite(price) || !Number.isFinite(prev)) return null;
+            const change = Number.isFinite(Number(r.fulldayChange)) ? Number(r.fulldayChange) : (price - prev);
+            const changePercent = Number.isFinite(Number(r.fulldayChangePercent))
+                ? Number(r.fulldayChangePercent)
+                : (prev ? (change / prev) * 100 : 0);
+            return {
+                price,
+                change,
+                changePercent,
+                previousClose: prev,
+                shortName: r.symbol || null,
+                marketState: r.marketState || null,
+                currency: r.currency || null,
+                volume: Number.isFinite(Number(r.volume)) ? Number(r.volume) : null,
+                dayHigh: null,
+                dayLow: null,
+                yearHigh: null,
+                yearLow: null,
+                regularPrice: price,
+                regularChange: change,
+                regularChangePercent: changePercent,
+                preMarketPrice: null,
+                preMarketChange: null,
+                preMarketChangePercent: null,
+                preMarketVolume: null,
+                postMarketPrice: null,
+                postMarketChange: null,
+                postMarketChangePercent: null,
+                postMarketVolume: null,
+                preMarketTime: null,
+                postMarketTime: null,
+                closes,
+                timestamps,
+            };
+        }
+
+        function iterSparkRows(data) {
+            if (!data || typeof data !== 'object') return [];
+            if (Array.isArray(data.spark?.result)) {
+                return data.spark.result.map((row) => {
+                    const resp = Array.isArray(row.response) ? row.response[0] : (row.response || row);
+                    if (resp && resp.indicators) {
+                        const meta = resp.meta || {};
+                        return {
+                            symbol: row.symbol,
+                            close: resp.indicators?.quote?.[0]?.close,
+                            timestamp: resp.timestamp,
+                            chartPreviousClose: meta.chartPreviousClose ?? meta.previousClose,
+                            fulldayPrice: meta.fulldayPrice ?? meta.regularMarketPrice,
+                            fulldayChange: meta.fulldayChange,
+                            fulldayChangePercent: meta.fulldayChangePercent,
+                        };
+                    }
+                    return { ...row, symbol: row.symbol };
+                });
+            }
+            const rows = [];
+            for (const [k, v] of Object.entries(data)) {
+                if (!v || typeof v !== 'object') continue;
+                if (!('close' in v) && v.fulldayPrice == null && !v.symbol) continue;
+                rows.push({ ...v, symbol: v.symbol || k });
+            }
+            return rows;
+        }
+
+        function mergeQuoteSnapshot(sym, q) {
+            const prev = quoteCache[sym];
+            if (prev) {
+                if ((!q.shortName || q.shortName === sym) && prev.shortName) q.shortName = prev.shortName;
+                if (q.volume == null && prev.volume) q.volume = prev.volume;
+                if (q.yearHigh == null && prev.yearHigh != null) q.yearHigh = prev.yearHigh;
+                if (q.yearLow == null && prev.yearLow != null) q.yearLow = prev.yearLow;
+                if (q.dayHigh == null && prev.dayHigh != null) q.dayHigh = prev.dayHigh;
+                if (q.dayLow == null && prev.dayLow != null) q.dayLow = prev.dayLow;
+                if (q.marketState == null && prev.marketState) q.marketState = prev.marketState;
+                if (q.preMarketPrice == null && prev.preMarketPrice != null) {
+                    q.preMarketPrice = prev.preMarketPrice;
+                    q.preMarketChange = prev.preMarketChange;
+                    q.preMarketChangePercent = prev.preMarketChangePercent;
+                }
+                if (q.postMarketPrice == null && prev.postMarketPrice != null) {
+                    q.postMarketPrice = prev.postMarketPrice;
+                    q.postMarketChange = prev.postMarketChange;
+                    q.postMarketChangePercent = prev.postMarketChangePercent;
+                }
+                if ((!q.preMarketVolume || q.preMarketVolume <= 0) && prev.preMarketVolume > 0) q.preMarketVolume = prev.preMarketVolume;
+                if ((!q.postMarketVolume || q.postMarketVolume <= 0) && prev.postMarketVolume > 0) q.postMarketVolume = prev.postMarketVolume;
+                if ((!Array.isArray(q.closes) || q.closes.length < 2) && Array.isArray(prev.closes) && prev.closes.length >= 2) {
+                    q.closes = prev.closes;
+                    q.timestamps = prev.timestamps || [];
+                }
+            }
+            q.ts = Date.now();
+            q.stale = false;
+            quoteCache[sym] = q;
+            if (q.shortName) symbolNameCache[sym] = q.shortName;
+        }
+
+        async function fetchYahooQuoteSnapshotChunk(symbols) {
+            const out = {};
+            if (!symbols.length) return out;
+            const url = `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${symbols.map(encodeURIComponent).join(',')}&range=1d&interval=5m`;
+            let data = null;
+            try { data = await fetchViaProxy(url); }
+            catch (e) { console.warn('[quotes] spark chunk failed:', e?.message || e); return out; }
+            const want = new Map(symbols.map(s => [String(s).toUpperCase(), s]));
+            for (const r of iterSparkRows(data)) {
+                const q = sparkRowToQuote(r);
+                if (!q) continue;
+                const key = want.get(String(r.symbol || '').toUpperCase());
+                if (!key) continue;
+                out[key] = q;
+            }
+            return out;
+        }
+
+        async function applyYahooQuoteSnapshots(symbols) {
+            const CHUNK = 20;
+            for (let i = 0; i < symbols.length; i += CHUNK) {
+                const chunk = symbols.slice(i, i + CHUNK);
+                let rows = await fetchYahooQuoteSnapshotChunk(chunk);
+                for (const [sym, q] of Object.entries(rows)) mergeQuoteSnapshot(sym, q);
+                paintQuotePanels();
+                const missing = chunk.filter(s => !rows[s]);
+                if (missing.length && missing.length < chunk.length) {
+                    rows = await fetchYahooQuoteSnapshotChunk(missing);
+                    for (const [sym, q] of Object.entries(rows)) mergeQuoteSnapshot(sym, q);
+                    paintQuotePanels();
+                }
+            }
+        }
+
+        async function refreshQuotes() {
+            // Batch Yahoo spark (prices + sparklines). Do not fetch a 1m chart per ticker.
+            const symbols = collectAllSymbols();
+            const yahoo = [];
+            const other = [];
+            for (const s of symbols) {
+                if (String(s).endsWith('-USD')) other.push(s);
+                else yahoo.push(s);
+            }
+            await Promise.all([
+                applyYahooQuoteSnapshots(yahoo),
+                (async () => {
+                    const conc = 6;
+                    let i = 0;
+                    async function worker() {
+                        while (i < other.length) {
+                            const sym = other[i++];
+                            const prev = quoteCache[sym];
+                            const q = await fetchQuoteWithFallback(sym);
+                            if (q) {
+                                if (prev) {
+                                    if ((!q.preMarketVolume || q.preMarketVolume <= 0) && prev.preMarketVolume > 0) q.preMarketVolume = prev.preMarketVolume;
+                                    if ((!q.postMarketVolume || q.postMarketVolume <= 0) && prev.postMarketVolume > 0) q.postMarketVolume = prev.postMarketVolume;
+                                }
+                                q.ts = Date.now();
+                                q.stale = false;
+                                quoteCache[sym] = q;
+                                if (q.shortName) symbolNameCache[sym] = q.shortName;
+                            } else if (quoteCache[sym]) {
+                                quoteCache[sym].stale = true;
+                            }
+                            paintQuotePanels();
+                        }
+                    }
+                    await Promise.all(Array.from({ length: Math.min(conc, other.length) || 0 }, () => worker()));
+                })(),
+            ]);
         }
 
         async function refreshNewsPanels() {
@@ -6473,9 +6638,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     ? `<span class="quote-session-tag ${v.sessionTag === 'REG' ? 'reg' : 'ext'}">${v.sessionTag}</span>`
                     : '';
                 const sparkNeedChart = !Array.isArray(q.closes) || q.closes.length < 2;
-                const sparkHTML = sparkNeedChart
-                    ? '<span class="quote-spark--loading">loading…</span>'
-                    : renderSparkline(q.closes, v.change);
+                // Price can be live before the sparkline; do not leave "loading…" on a priced row.
+                const sparkHTML = sparkNeedChart ? '' : renderSparkline(q.closes, v.change);
                 const metaHTML = renderQuoteMeta(q, priceFormat, v);
                 return `<div class="quote-row${staleCls}" data-sym="${escapeAttr(sym)}" onclick="openDrilldown('${escapeAttr(sym)}')">
                     <div class="quote-row-main">

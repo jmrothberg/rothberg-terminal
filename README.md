@@ -8,7 +8,7 @@ A single-file, browser-only clone of the Bloomberg Terminal — phosphor-green m
 
 > Click the screenshot or the launch link above to open the live terminal in your browser. No install. Quotes, news, flights, vessels, and hazard feeds need no keys. An optional aisstream.io key only speeds up AIS.
 
-**Release:** the live header and browser tab show **v1.8.1** so you can confirm you are on the current build after a refresh or deploy.
+**Release:** the live header and browser tab show **v1.8.2** so you can confirm you are on the current build after a refresh or deploy.
 
 ---
 
