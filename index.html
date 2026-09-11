@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.8.0</title>
+    <title>ROTHBERG TERMINAL v1.8.1</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys except an optional aisstream.io key for faster AIS.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1254,7 +1254,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.8.0</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.8.1</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1619,7 +1619,10 @@ Earth events: NASA EONET api/v3/events/geojson (direct CORS;
               falls back to same public proxies if needed)
 Space weather: NOAA SWPC Kp + alerts (no key)
 Flights:      airplanes.live ∪ adsb.lol ∪ adsb.fi ∪ OpenSky (no key)
-Vessels:      Open Waters AIS (no key, global) ∪ optional aisstream.io key</pre>
+Vessels:      Open Waters AIS (no key, global) ∪ optional aisstream.io key
+HERE:         CENTER chip on FLIGHTS / VESSELS / event maps — device GPS
+              (iPhone, iPad, most computers). Denied / missing GPS keeps
+              the current pin; nothing crashes. HTTPS required on iOS.</pre>
                 </div>
 
                 <div class="help-section">
@@ -1706,8 +1709,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
             url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
         ];
-        /** Each proxy attempt is aborted after this so hung third-party proxies cannot block the whole refresh. */
-        const PROXY_FETCH_ATTEMPT_MS = 14000;
+        /** Each proxy attempt is aborted after this so a hung proxy cannot stall a feed. */
+        const PROXY_FETCH_ATTEMPT_MS = 5000;
 
         const PANEL_TYPES = {
             stocks:      { label: 'WATCHLIST',           usesSymbols: true,  usesNews: false, priceFormat: 'usd',   empty: 'NVDA, AAPL, TSLA…', supportsExtendedHours: true },
@@ -2111,9 +2114,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         const chartCache = {};   // { "symbol|range": { closes, timestamps, ts } }
         const polymarketCache = {};   // { "filter|limit": { markets, ts } } 60s; also {"id|<id>": { market, ts }}
         const polymarketHistoryCache = {};  // { "token|interval": { points, ts } } 60s
-        let isRefreshing = false;
-        /** When true, at least one refresh tick arrived during an in-flight refresh — run one more pass after it finishes (see refreshAll). */
-        let refreshPending = false;
+        let isRefreshing = false; // quotes tick only — other feeds must not pin this
+        /** Feeds currently fetching. Independent so a slow feed cannot block another. */
+        const refreshInFlight = new Set();
+        /** Re-run these feeds when their current fetch finishes (R / interval during in-flight). */
+        const refreshPendingFeeds = new Set();
         let refreshTimerId = null;
         let autoCompleteAbort = null;
         /** EONET: one in-flight full-feed merge so chip switches + background refresh share a single fetch. */
@@ -2350,53 +2355,65 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             // Cache-bust the inner URL so neither the CORS proxy nor the browser HTTP
             // cache serves a stale response. Yahoo/Polymarket/RSS ignore unknown params.
             const bustedUrl = url + (url.includes('?') ? '&' : '?') + '_t=' + Date.now();
-            let lastErr = null;
-            for (let attempt = 0; attempt < PROXIES.length; attempt++) {
-                const proxyIdx = (currentProxy + attempt) % PROXIES.length;
-                const proxied = PROXIES[proxyIdx](bustedUrl);
-                const attemptCtrl = new AbortController();
-                let tid = setTimeout(() => {
-                    tid = null;
-                    attemptCtrl.abort();
-                }, PROXY_FETCH_ATTEMPT_MS);
-                const onParentAbort = () => {
-                    if (tid != null) {
-                        clearTimeout(tid);
-                        tid = null;
-                    }
-                    attemptCtrl.abort();
-                };
-                if (signal) {
-                    if (signal.aborted) {
-                        if (tid != null) clearTimeout(tid);
-                        throw new DOMException('Aborted', 'AbortError');
-                    }
-                    signal.addEventListener('abort', onParentAbort);
-                }
-                try {
-                    const res = await fetch(proxied, { signal: attemptCtrl.signal, cache: 'no-store' });
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                    const text = await res.text();
-                    if (!text) throw new Error('Empty body');
-                    if (text.length < 120 && /too many requests|rate ?limit|request timeout|upstream|unauthorized/i.test(text)) {
-                        throw new Error(`proxy short-body: ${text.slice(0, 80)}`);
-                    }
-                    const body = parseJson ? JSON.parse(text) : text;
-                    currentProxy = proxyIdx;
-                    return body;
-                } catch (err) {
-                    lastErr = err;
-                    // Caller abort: rethrow. Proxy timeout: AbortError with signal not aborted — try next proxy.
-                    if (signal && signal.aborted) throw err;
-                } finally {
-                    if (tid != null) {
-                        clearTimeout(tid);
-                        tid = null;
-                    }
+            if (signal && signal.aborted) throw new DOMException('Aborted', 'AbortError');
+            // Race every proxy. First usable body wins; losers are aborted.
+            // Sequential 14s×3 waits used to freeze quotes whenever any one proxy hung.
+            return await new Promise((resolve, reject) => {
+                let settled = false;
+                let pending = 0;
+                let lastErr = null;
+                const ctrls = [];
+                const timers = [];
+                const cleanup = () => {
+                    timers.forEach((t) => clearTimeout(t));
+                    ctrls.forEach((c) => { try { c.abort(); } catch (_e) {} });
                     if (signal) signal.removeEventListener('abort', onParentAbort);
+                };
+                const onParentAbort = () => {
+                    if (settled) return;
+                    settled = true;
+                    cleanup();
+                    reject(new DOMException('Aborted', 'AbortError'));
+                };
+                if (signal) signal.addEventListener('abort', onParentAbort);
+                const win = (proxyIdx, body) => {
+                    if (settled) return;
+                    settled = true;
+                    currentProxy = proxyIdx;
+                    cleanup();
+                    resolve(body);
+                };
+                const fail = (err) => {
+                    if (settled) return;
+                    lastErr = err;
+                    pending--;
+                    if (pending === 0) {
+                        settled = true;
+                        cleanup();
+                        reject(lastErr || new Error('All proxies failed'));
+                    }
+                };
+                for (let i = 0; i < PROXIES.length; i++) {
+                    const proxyIdx = (currentProxy + i) % PROXIES.length;
+                    const attemptCtrl = new AbortController();
+                    ctrls.push(attemptCtrl);
+                    pending++;
+                    const tid = setTimeout(() => attemptCtrl.abort(), PROXY_FETCH_ATTEMPT_MS);
+                    timers.push(tid);
+                    fetch(PROXIES[proxyIdx](bustedUrl), { signal: attemptCtrl.signal, cache: 'no-store' })
+                        .then(async (res) => {
+                            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                            const text = await res.text();
+                            if (!text) throw new Error('Empty body');
+                            if (text.length < 120 && /too many requests|rate ?limit|request timeout|upstream|unauthorized/i.test(text)) {
+                                throw new Error(`proxy short-body: ${text.slice(0, 80)}`);
+                            }
+                            return parseJson ? JSON.parse(text) : text;
+                        })
+                        .then((body) => win(proxyIdx, body))
+                        .catch((err) => fail(err));
                 }
-            }
-            throw lastErr || new Error('All proxies failed');
+            });
         }
 
         /** Parse Nasdaq quote API volume strings like "636,695.256216". */
@@ -2637,7 +2654,10 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     closes: closeSeries,
                     timestamps,
                 };
-                await enrichExtendedVolumesFromNasdaq(symbol, result);
+                // PRE/AH volume is extra. Do not block the quote (or any other feed) on Nasdaq.
+                void enrichExtendedVolumesFromNasdaq(symbol, result).then((updated) => {
+                    if (updated && quoteCache[symbol] === result) paintQuotePanels();
+                });
                 return result;
             } catch (err) {
                 return null;
@@ -4232,7 +4252,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
         async function refreshQuotes() {
             const symbols = collectAllSymbols();
-            const batchSize = 4;
+            const batchSize = 8;
             for (let i = 0; i < symbols.length; i += batchSize) {
                 const batch = symbols.slice(i, i + batchSize);
                 await Promise.all(batch.map(async sym => {
@@ -4248,15 +4268,15 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                                 q.postMarketVolume = prev.postMarketVolume;
                             }
                         }
-                        quoteCache[sym] = { ...q, ts: Date.now(), stale: false };
+                        q.ts = Date.now();
+                        q.stale = false;
+                        quoteCache[sym] = q;
                         if (q.shortName) symbolNameCache[sym] = q.shortName;
                     } else if (quoteCache[sym]) {
                         quoteCache[sym].stale = true;
                     }
+                    paintQuotePanels();
                 }));
-                if (i + batchSize < symbols.length) {
-                    await new Promise(r => setTimeout(r, 200));
-                }
             }
         }
 
@@ -4570,18 +4590,17 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         async function fetchOneFlightSource(src, lat, lon, distNm) {
             const url = src.url(lat, lon, distNm);
             const bust = (url.includes('?') ? '&' : '?') + '_t=' + Date.now();
-            // 1) direct (works when origin sends Access-Control-Allow-Origin)
+            const ctrl = new AbortController();
+            const tid = setTimeout(() => ctrl.abort(), PROXY_FETCH_ATTEMPT_MS);
             try {
-                const res = await fetch(url + bust, { cache: 'no-store' });
-                if (res.ok) {
-                    const json = await res.json();
-                    return json;
-                }
+                const res = await fetch(url + bust, { cache: 'no-store', signal: ctrl.signal });
+                if (res.ok) return await res.json();
                 console.warn(`[FLIGHTS] ${src.name} direct HTTP ${res.status}`);
             } catch (e) {
                 console.warn(`[FLIGHTS] ${src.name} direct fetch error:`, e?.message || e);
+            } finally {
+                clearTimeout(tid);
             }
-            // 2) proxy rotation
             try {
                 return await fetchViaProxy(url);
             } catch (e2) {
@@ -5555,7 +5574,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 try {
                     const ids = state.layout.filter(pid => state.panels[pid]?.type === 'eonet');
                     if (ids.length) await applyEonetFullToPanels(ids);
-                    renderAllPanels();
+                    paintNonMapPanelTypes(['eonet']);
                 } catch (e) {
                     console.error('EONET full merge:', e);
                 } finally {
@@ -5599,20 +5618,78 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
         }
 
-        async function refreshAll() {
-            if (isRefreshing) {
-                refreshPending = true;
-                return;
+        // Quote / holdings / movers — paint in place. Globe/map canvases stay mounted.
+        const QUOTE_PAINT_TYPES = new Set(['stocks','indices','crypto','forex','commodities','bonds','movers','externalAccount']);
+        function paintQuotePanels() {
+            paintNonMapPanelTypes([...QUOTE_PAINT_TYPES]);
+        }
+
+        // In-place body/title update. Leaves globe/map canvases mounted (globe reads
+        // panel._events each frame; maps get requestDraw). Never remounts the grid for a feed tick.
+        function paintNonMapPanelTypes(typeList) {
+            const set = new Set(typeList);
+            for (const pid of state.layout) {
+                const panel = state.panels[pid];
+                if (!panel || !set.has(panel.type)) continue;
+                const root = document.getElementById(`panel-${pid}`);
+                if (!root) continue;
+                const content = root.querySelector('.panel-content');
+                const isGlobe = !!(content && content.classList.contains('panel-content--globe'));
+                const hasCanvas = !!(content && content.querySelector('canvas'));
+                if (content && !isGlobe && !hasCanvas) {
+                    try { content.innerHTML = renderPanelContent(pid); }
+                    catch (e) { console.warn('[paintNonMap]', pid, e); }
+                } else if (hasCanvas && !isGlobe) {
+                    const ctrl = geoMapControllers.get(pid);
+                    if (ctrl) ctrl.requestDraw();
+                }
+                const titleLeft = root.querySelector('.panel-title-left');
+                if (titleLeft && PANEL_TYPES[panel.type]) {
+                    titleLeft.innerHTML = `${PANEL_TYPES[panel.type].label}${renderTitleDetail(panel)}`;
+                }
             }
-            isRefreshing = true;
-            const btn = document.getElementById('refreshBtn');
-            if (btn) btn.disabled = true;
-            updateStatus('FETCHING…', 'normal');
-            try {
+        }
+
+        /** Run one named feed. Skip if that feed is already in flight — never wait on other feeds. */
+        function startFeed(name, fn) {
+            if (refreshInFlight.has(name)) {
+                refreshPendingFeeds.add(name);
+                return Promise.resolve();
+            }
+            refreshInFlight.add(name);
+            if (name === 'quotes') {
+                isRefreshing = true;
+                const btn = document.getElementById('refreshBtn');
+                if (btn) btn.disabled = true;
+            }
+            return Promise.resolve()
+                .then(fn)
+                .catch((err) => {
+                    console.error(`[${name}] refresh:`, err);
+                    if (name === 'quotes') throw err;
+                })
+                .finally(() => {
+                    refreshInFlight.delete(name);
+                    if (name === 'quotes') {
+                        isRefreshing = false;
+                        const btn = document.getElementById('refreshBtn');
+                        if (btn) btn.disabled = false;
+                    }
+                    if (refreshPendingFeeds.has(name)) {
+                        refreshPendingFeeds.delete(name);
+                        void startFeed(name, fn);
+                    }
+                });
+        }
+
+        async function refreshAll() {
+            // Each feed paints when *it* finishes. No feed awaits another.
+            if (!refreshInFlight.has('quotes')) updateStatus('FETCHING…', 'normal');
+            const quoteP = startFeed('quotes', async () => {
                 markQuoteCacheStaleBeforeFetch();
-                renderAllPanels();
-                await Promise.all([refreshQuotes(), refreshNewsPanels(), refreshPredictionPanels(), refreshSeismicPanels(), refreshStormPanels(), refreshEonetPanels(), refreshFlightPanels(), refreshVesselSnapshots(), refreshSwpcPanels()]);
-                renderAllPanels();
+                paintQuotePanels();
+                await refreshQuotes();
+                paintQuotePanels();
                 if (currentDrilldown && currentDrilldown.kind === 'ticker') {
                     const dds = currentDrilldown.symbol;
                     renderDrilldownPrice(dds);
@@ -5622,23 +5699,51 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 updateTimestamps();
                 updateMarketStatus();
                 scheduleQuoteCachePersist();
+            });
+            startFeed('news', async () => {
+                await refreshNewsPanels();
+                paintNonMapPanelTypes(['news']);
+                updateTimestamps();
+            });
+            startFeed('prediction', async () => {
+                await refreshPredictionPanels();
+                paintNonMapPanelTypes(['prediction']);
+            });
+            startFeed('seismic', async () => {
+                await refreshSeismicPanels();
+                paintNonMapPanelTypes(['seismic']);
+            });
+            startFeed('storms', async () => {
+                await refreshStormPanels();
+                paintNonMapPanelTypes(['storms']);
+            });
+            startFeed('eonet', async () => {
+                await refreshEonetPanels();
+                paintNonMapPanelTypes(['eonet']);
+            });
+            startFeed('flights', async () => {
+                await refreshFlightPanels();
+                for (const pid of state.layout) {
+                    if (state.panels[pid]?.type === 'flights') repaintFlightPanel(pid);
+                }
+            });
+            startFeed('vessels', async () => {
+                await refreshVesselSnapshots();
+                for (const pid of state.layout) {
+                    if (state.panels[pid]?.type === 'vessels') repaintVesselPanel(pid);
+                }
+            });
+            startFeed('swpc', async () => {
+                await refreshSwpcPanels();
+                paintNonMapPanelTypes(['swpc']);
+            });
+            try {
+                await quoteP;
             } catch (err) {
-                console.error('refresh error:', err);
+                console.error('quotes refresh error:', err);
                 updateStatus('CONNECTION ERROR', 'error');
-                renderAllPanels();
-                if (currentDrilldown && currentDrilldown.kind === 'ticker') {
-                    const dds = currentDrilldown.symbol;
-                    renderDrilldownPrice(dds);
-                    await resyncDrilldownTickerChart(dds);
-                }
+                paintQuotePanels();
                 scheduleQuoteCachePersist();
-            } finally {
-                isRefreshing = false;
-                if (btn) btn.disabled = false;
-                if (refreshPending) {
-                    refreshPending = false;
-                    void refreshAll();
-                }
             }
         }
 
@@ -6009,7 +6114,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                                placeholder="address, city — or lat, lon"
                                onkeydown="if(event.key==='Enter'){event.preventDefault();commitFlightCenter('${pid}',this.value);this.blur();}"
                                onblur="commitFlightCenter('${pid}',this.value)">
-                        <span class="tray-hint">${escapeHTML(c.label)} · type a <strong>street address</strong> / city <em>or</em> <strong>lat, lon</strong> + Enter to re-pin (addresses resolved via OpenStreetMap Nominatim)</span>
+                        <button type="button" class="chip" onclick="useHereLocation('flights','${pid}')" title="Use this device's present location (iPhone / iPad / most computers). If GPS is denied, timed out, or missing, the current center is kept — nothing crashes.">HERE</button>
+                        <span class="tray-hint">${escapeHTML(c.label)} · <strong>HERE</strong> = present location · or type a <strong>street address</strong> / city <em>or</em> <strong>lat, lon</strong> + Enter (addresses via OpenStreetMap Nominatim)</span>
                     </div>
                     <div class="tray-row">
                         <span class="tray-label">RADIUS</span>
@@ -6065,7 +6171,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                                placeholder="port / strait / place — or lat, lon"
                                onkeydown="if(event.key==='Enter'){event.preventDefault();commitVesselCenter('${pid}',this.value);this.blur();}"
                                onblur="commitVesselCenter('${pid}',this.value)">
-                        <span class="tray-hint">${escapeHTML(c.label)} · type a <strong>place / strait / port</strong> name (e.g. "Strait of Hormuz", "Singapore Strait") <em>or</em> <strong>lat, lon</strong> + Enter (resolved via OpenStreetMap Nominatim)</span>
+                        <button type="button" class="chip" onclick="useHereLocation('vessels','${pid}')" title="Use this device's present location (iPhone / iPad / most computers). If GPS is denied, timed out, or missing, the current center is kept — nothing crashes.">HERE</button>
+                        <span class="tray-hint">${escapeHTML(c.label)} · <strong>HERE</strong> = present location · or type a <strong>place / strait / port</strong> (e.g. "Strait of Hormuz") <em>or</em> <strong>lat, lon</strong> + Enter (OpenStreetMap Nominatim)</span>
                     </div>
                     <div class="tray-row">
                         <span class="tray-label">RADIUS</span>
@@ -9144,7 +9251,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                                placeholder="place / region — or lat, lon"
                                onkeydown="if(event.key==='Enter'){event.preventDefault();commitGeoMapCenter('${pid}',this.value);this.blur();}"
                                onblur="commitGeoMapCenter('${pid}',this.value)">
-                        <span class="tray-hint">${escapeHTML(c.label)} · type a place/region or lat, lon + Enter (OpenStreetMap Nominatim)</span>
+                        <button type="button" class="chip" onclick="useHereLocation('geomap','${pid}')" title="Use this device's present location (iPhone / iPad / most computers). If GPS is denied, timed out, or missing, the current center is kept — nothing crashes.">HERE</button>
+                        <span class="tray-hint">${escapeHTML(c.label)} · <strong>HERE</strong> = present location · or type a place/region or lat, lon + Enter (OpenStreetMap Nominatim)</span>
                     </div>
                     <div class="tray-row">
                         <span class="tray-label">RADIUS</span>
@@ -10328,6 +10436,82 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             return true;
         }
 
+        /** Device GPS for CENTER → HERE. Never throws. Resolves {ok:true,lat,lon} or {ok:false,reason}. */
+        function getDeviceLocation() {
+            return new Promise((resolve) => {
+                try {
+                    if (typeof navigator === 'undefined' || !navigator.geolocation || typeof navigator.geolocation.getCurrentPosition !== 'function') {
+                        resolve({ ok: false, reason: 'unavailable' });
+                        return;
+                    }
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                            try {
+                                const lat = pos && pos.coords ? Number(pos.coords.latitude) : NaN;
+                                const lon = pos && pos.coords ? Number(pos.coords.longitude) : NaN;
+                                if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+                                    resolve({ ok: false, reason: 'unavailable' });
+                                    return;
+                                }
+                                resolve({ ok: true, lat, lon });
+                            } catch (_e) {
+                                resolve({ ok: false, reason: 'unavailable' });
+                            }
+                        },
+                        (err) => {
+                            const code = err && err.code;
+                            // 1 = PERMISSION_DENIED, 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT
+                            const reason = code === 1 ? 'denied' : code === 3 ? 'timeout' : 'unavailable';
+                            resolve({ ok: false, reason });
+                        },
+                        { enableHighAccuracy: false, timeout: 8000, maximumAge: 120000 }
+                    );
+                } catch (_e) {
+                    resolve({ ok: false, reason: 'unavailable' });
+                }
+            });
+        }
+
+        async function useHereLocation(kind, pid) {
+            try {
+                const panel = state.panels[pid];
+                if (!panel) return;
+                const tag = kind === 'vessels' ? 'VESSELS' : kind === 'geomap' ? 'MAP' : 'FLIGHTS';
+                updateStatus(`${tag} · LOCATING…`, 'normal');
+                const loc = await getDeviceLocation();
+                if (!loc.ok) {
+                    const why = loc.reason === 'denied' ? 'DENIED'
+                        : loc.reason === 'timeout' ? 'TIMED OUT'
+                        : 'UNAVAILABLE';
+                    updateStatus(`${tag} · LOCATION ${why} — kept current center`, 'normal');
+                    return;
+                }
+                const label = `Here ${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)}`;
+                if (kind === 'flights' && panel.type === 'flights') {
+                    applyFlightCenter(panel, loc.lat, loc.lon, label);
+                    updateStatus('FLIGHTS · CENTERED ON PRESENT LOCATION', 'normal');
+                    return;
+                }
+                if (kind === 'vessels' && panel.type === 'vessels') {
+                    applyVesselCenter(panel, loc.lat, loc.lon, label);
+                    updateStatus('VESSELS · CENTERED ON PRESENT LOCATION', 'normal');
+                    return;
+                }
+                if (kind === 'geomap' && PANEL_TYPES[panel.type]?.supportsGeoDisplay) {
+                    panel.geoCenterLat = loc.lat;
+                    panel.geoCenterLon = loc.lon;
+                    panel.geoCenterLabel = label;
+                    panel._selectedGeoId = null;
+                    saveState();
+                    renderAllPanels();
+                    updateStatus('MAP · CENTERED ON PRESENT LOCATION', 'normal');
+                }
+            } catch (e) {
+                console.warn('[HERE]', e);
+                updateStatus('LOCATION UNAVAILABLE — kept current center', 'normal');
+            }
+        }
+
         /** OpenStreetMap Nominatim geocoder — free, CORS-open, no key. Asks for sane rate limits (≤ 1/s). */
         async function geocodeAddress(query) {
             const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
@@ -10905,7 +11089,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 showTrayMessage(pid, `No data for "${sym}". Check ticker and try again.`, 'err');
                 return;
             }
-            quoteCache[sym] = { ...q, ts: Date.now(), stale: false };
+            q.ts = Date.now();
+            q.stale = false;
+            quoteCache[sym] = q;
             if (q.shortName) symbolNameCache[sym] = q.shortName;
             scheduleQuoteCachePersist();
             panel.symbols.push(sym);
