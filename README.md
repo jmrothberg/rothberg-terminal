@@ -1,14 +1,14 @@
 # Rothberg Terminal
 
-A single-file, browser-only clone of the Bloomberg Terminal — phosphor-green monospace, dense data panels, pull-down configuration — powered entirely by **free, public data sources**. No API keys. No backend. No build step.
+A single-file, browser-only clone of the Bloomberg Terminal — phosphor-green monospace, dense data panels, pull-down configuration — powered by **free, public data sources**. No backend. No build step. **VESSELS works with no API key** via [Open Waters](https://openwaters.io/ais/). An optional free [aisstream.io](https://aisstream.io/) key is a faster live overlay (see [Data sources](#data-sources)).
 
 ## ► [LAUNCH THE TERMINAL →](https://jmrothberg.github.io/rothberg-terminal/)
 
 [![JMR's Rothberg Terminal](JMRs_Bloomberg.png)](https://jmrothberg.github.io/rothberg-terminal/)
 
-> Click the screenshot or the launch link above to open the live terminal in your browser. No install, no signup, no keys.
+> Click the screenshot or the launch link above to open the live terminal in your browser. No install. Quotes, news, flights, vessels, and hazard feeds need no keys. An optional aisstream.io key only speeds up AIS.
 
-**Release:** the live header and browser tab show **v1.7.11** so you can confirm you are on the current build after a refresh or deploy.
+**Release:** the live header and browser tab show **v1.8.0** so you can confirm you are on the current build after a refresh or deploy.
 
 ---
 
@@ -40,7 +40,7 @@ A single-file, browser-only clone of the Bloomberg Terminal — phosphor-green m
 
 ## Two differences from the real Bloomberg
 
-1. **All data is free and public.** No Bloomberg subscription. No paid APIs. No keys to obtain. Quotes come from Yahoo Finance (via public CORS proxies), crypto from CoinGecko, forex from open.er-api.com, news from Google News RSS.
+1. **All data is free and public.** No Bloomberg subscription. No paid APIs. Quotes come from Yahoo Finance (via public CORS proxies), crypto from Binance then CoinGecko, forex from open.er-api.com, news from Google News RSS. **VESSELS** is keyless via Open Waters; paste a free aisstream.io key only if you want a faster live overlay.
 2. **Super-easy UI.** Real Bloomberg uses `NVDA <EQUITY> <GO>` keyboard syntax. This clone uses pull-down trays — click a panel title, tap a panel-type chip to change what it shows, type a ticker and press Enter to add it.
 
 ---
@@ -54,7 +54,7 @@ Every panel type sorts into one of four buckets, and that's the discipline:
 1. **Price instruments** — `STOCKS`, `INDICES`, `CRYPTO`, `FOREX`, `COMMODITIES`, `TREASURIES`. Structured numeric quotes.
 2. **Information flow** — `NEWS`, `CALENDAR`, `MOVERS`, `PREDICTION MARKETS`. Narrative + schedule + probabilistic risk. `CALENDAR` straddles macro and energy — a `Macro / Energy / All` chip in the tray filters between BLS / Fed / BEA releases and EIA weeklies + STEO.
 3. **Visualization** — **Heat map** as a **DISPLAY** mode on any price panel (same symbols as the quote table). Not a separate panel type — open the tray, use **DISPLAY → HEAT MAP** vs **ENTERED** / **A↔Z** / **%**.
-4. **Leading-indicator risk signals** — `SEISMIC EVENTS`, `TROPICAL CYCLONES`, **`EARTH EVENTS (NASA)`** (EONET). Physical-world events with lat/lon (and size when published): quakes/hurricanes plus wildfire, volcano, dust, drought, and related hazards — useful for explaining or front-running moves in **utilities, insurers, ag, solar, airlines, shipping**, and regional equities before headlines fully price them in.
+4. **Leading-indicator risk signals** — `SEISMIC EVENTS`, `TROPICAL CYCLONES`, **`EARTH EVENTS (NASA)`** (EONET), **`SPACE WEATHER`** (NOAA SWPC). Physical-world events with lat/lon (and size when published), plus geomagnetic Kp: quakes/hurricanes/wildfire plus grid/GPS/polar-aviation storms — useful for explaining or front-running moves in **utilities, insurers, ag, solar, airlines, shipping, satellites**, and regional equities before headlines fully price them in.
 
 The rules for adding more panel types: free CORS-friendly API, threshold that maps to a tradeable instrument, fits the existing list-with-drilldown idiom. **EXTERNAL ACCOUNT** is the exception: it ingests **your** Fidelity `Portfolio_Positions*.csv` export(s) locally (no Fidelity API); you can load several and they merge into one combined view until you remove a file or clear all. **FLIGHTS** is a second, situational-awareness exception — a top-down map of ADS-B aircraft within a configurable radius of any lat/lon you pin (default: Miami Beach). It's not a trading signal; it's a "what's flying over my house?" panel that fits the same list-with-drilldown idiom.
 
@@ -68,9 +68,9 @@ The importer expects the **positions export layout Fidelity produces**, not an a
 
 The in-app **[HELP]** panel has the same summary under **EXTERNAL ACCOUNT — FIDELITY CSV FORMAT**.
 
-### Sixteen panel types — reassign any panel to any type
+### Seventeen panel types — reassign any panel to any type
 
-Heat map is **not** listed here — it is a **DISPLAY** option on the types below that load symbols (**STOCKS**, **INDICES**, **CRYPTO**, **FOREX**, **COMMODITIES**, **TREASURIES**). See [Display and heat map](#display-and-heat-map-hmap-style).
+Heat map is **not** listed here — it is a **DISPLAY** option on the types below that load symbols (**STOCKS**, **INDICES**, **CRYPTO**, **FOREX**, **COMMODITIES**, **TREASURIES**). **TREASURIES** also has **DISPLAY → CURVE**. See [Display and heat map](#display-and-heat-map-hmap-style).
 
 | Type | What it shows | Default symbols |
 |---|---|---|
@@ -79,7 +79,7 @@ Heat map is **not** listed here — it is a **DISPLAY** option on the types belo
 | **CRYPTO** | Cryptocurrencies | `BTC-USD ETH-USD SOL-USD DOGE-USD` |
 | **FOREX** | Currency pairs | `EURUSD=X USDJPY=X GBPUSD=X AUDUSD=X` |
 | **COMMODITIES** | Futures contracts | `CL=F GC=F SI=F NG=F HG=F` |
-| **TREASURIES** | US bond yields | `^IRX ^FVX ^TNX ^TYX` |
+| **TREASURIES** | US bond yields + **DISPLAY → CURVE** | `^IRX ^FVX ^TNX ^TYX` — curve plots those four tenors (13W / 5Y / 10Y / 30Y) and flags an **INVERTED** 10Y−13W spread (recession / duration signal). No extra API. |
 | **NEWS** | Financial headlines by topic | Markets · **Watchlist** (Google News over every ticker in your **WATCHLIST** panels) · **External** (same Yahoo-quoted **EXTERNAL ACCOUNT** holdings as live quotes — no sweep/MM `**` / `…XX` lines unless SYM-overridden) · Tech/AI · Semis · Crypto · Economy · Energy · Politics · World · Chokepoints · **EIA** (*Today in Energy* RSS — [U.S. Energy Information Administration](https://www.eia.gov/)) + custom. **Shift+click / ⌘+click** (or **long-press** ~0.5s on touch) on topic chips merges multiple topics (OR, URLs deduped). Tray **SAVED** row lists custom topics with `[×]` to remove (same idea as watchlist tags). Custom topics persist in the saved layout (localStorage / `[EXPORT]` JSON), like symbols. |
 | **CALENDAR** | Upcoming US releases (macro + energy) with a `Macro / Energy / All` filter | Computed (CPI, NFP, FOMC, PCE, GDP + EIA WPSR / Nat Gas Storage / STEO). Each release title links to the agency’s official schedule or data page. |
 | **MOVERS** | Derived top gainers/losers, VIX, sentiment | From loaded quotes |
@@ -87,8 +87,9 @@ Heat map is **not** listed here — it is a **DISPLAY** option on the types belo
 | **SEISMIC EVENTS** | Live USGS earthquake feed (M4.5+ last 7 days) | Threshold: M4.5 · M5 · M5.5 · M6 · M7 |
 | **TROPICAL CYCLONES** | Active NOAA NHC storms with Saffir-Simpson category | Basin chips: All · Atlantic · East Pacific · Central Pacific — **Shift+click / ⌘+click** (or **long-press**) selects multiple basins (OR). |
 | **EARTH EVENTS (NASA)** | NASA [EONET](https://eonet.gsfc.nasa.gov/) open natural-hazard events (last 14 days) | **FILTER:** All · Fire · Volc · Dust · Dry · Storm · Ice · Slide — each chip is a one-line “why markets care” hint in the tray; **DISPLAY → GLOBE** uses the same filtered feed (polygon → centroid). **No API key.** When every open EONET panel shares the same chip (not ALL), that category loads first and the full open-events feed merges in the background. Globe dots use distinct colors per hazard and size scales within each type in the current view. When NASA gives a numeric size (e.g. acres, kt), it shows on the row; otherwise globe weight blends footprint + recency (not comparable to Richter). |
+| **SPACE WEATHER** | NOAA SWPC planetary K-index + watches/warnings | **No API key.** Kp bar (0–9) and NOAA G-scale (G1–G5). **G1 (Kp≥5)** is the investing threshold: utilities / grid (`XLU`), GPS logistics, polar aviation, satellite names. **G3+** is the tape-moving bucket. Alert list is the current SWPC bulletin. |
 | **FLIGHTS** | ADS-B aircraft within a configurable radius of a pinned address | **CENTER** — type a **street address / city** *or* `lat, lon` + Enter to re-pin (defaults to a Miami Beach address; free-text addresses resolved via [OpenStreetMap Nominatim](https://nominatim.openstreetmap.org/)). **RADIUS** chips: `5 / 10 / 25 / 50 nm`. **DISPLAY → MAP** = top-down 2D map with a **CARTO Dark Matter** basemap (OSM-derived dark tiles, cached per session and HTTP-cached across reloads — only re-fetched when center / zoom changes), home as a ★ at center, range rings, aircraft as triangles rotated to heading (color by altitude band: amber < 5k ft, bright green < 18k ft, dim green ≥ 18k ft), fading position trails. **Tap** (iPad / iPhone) or **hover** (mouse) an aircraft for a tooltip with callsign / airline / type / origin → destination / altitude / speed / heading / vertical-rate / distance. **DISPLAY → LIST** = sortable rows (closest first) with callsign · operator · plane type · origin → destination · altitude · speed · distance from home. Aircraft come from four ADS-B feeds queried in parallel + unioned (airplanes.live / adsb.lol / adsb.fi / OpenSky); origin / destination / airline come from [adsbdb.com](https://www.adsbdb.com/) per callsign (cached 24h). |
-| **VESSELS (AIS)** | Live AIS ships within a configurable radius of a pinned map location | **CENTER** — type a **place / strait / port** name (e.g. `Strait of Hormuz`, `Singapore Strait`) *or* `lat, lon` + Enter (resolved via [OpenStreetMap Nominatim](https://nominatim.openstreetmap.org/); defaults to the Strait of Hormuz). **RADIUS** chips: `10 / 25 / 50 / 100 nm`. **TYPE** multi-select chips: `All · Tanker · Cargo · Passenger · Fishing · Tug/Special · Pleasure · High-speed` (derived from the AIS ship-type code). **DISPLAY → MAP** = same top-down basemap idiom as FLIGHTS — ★ center, range rings, vessels drawn as hulls rotated to course-over-ground, colored by type. **Tap** / **hover** a vessel for name · MMSI · type · flag · destination · speed · course · length · distance. **DISPLAY → LIST** = sortable rows (closest first). Data is **live AIS over a WebSocket** from [aisstream.io](https://aisstream.io/) — free, but unlike ADS-B there is **no keyless global AIS feed**, so you paste a **free aisstream.io API key** once (tray → **AIS KEY**; stored locally in your browser, shared by all VESSELS panels). |
+| **VESSELS (AIS)** | Live AIS ships within a configurable radius of a pinned map location | **CENTER** — type a **place / strait / port** name (e.g. `Strait of Hormuz`, `Singapore Strait`) *or* `lat, lon` + Enter (resolved via [OpenStreetMap Nominatim](https://nominatim.openstreetmap.org/); defaults to the Strait of Hormuz). **RADIUS** chips: `10 / 25 / 50 / 100 nm`. **TYPE** multi-select chips: `All · Tanker · Cargo · Passenger · Fishing · Tug/Special · Pleasure · High-speed` (derived from the AIS ship-type code). **DISPLAY → MAP** = same top-down basemap idiom as FLIGHTS. **No API key required** — [Open Waters](https://openwaters.io/ais/) `wss://ais.openwaters.io/v1/stream` (snapshot + live) plus HTTP GeoJSON, unioned by MMSI. Worldwide via AISHub (~5 min lag) plus Norway/Finland/volunteer live. Optional faster overlay: paste a free [aisstream.io](https://aisstream.io/) key in **AIS KEY** (stored locally). |
 | **EXTERNAL ACCOUNT** | Fidelity **Portfolio_Positions*.csv** (export from Positions) | **ADD CSV** — file picker uses **Downloads** as the suggested start folder when the browser supports it (`showOpenFilePicker`); otherwise a normal file chooser. **Multiple files per panel**: each **ADD CSV** **appends** that export’s rows to the combined view and **TOTALS!** (same account name across files is merged in the totals view); **FILE** lists every loaded filename, each with **`[×]`** to remove only that file, plus **CLEAR ALL** to reset the panel. Symbol / cost overrides are **pruned** to identifiers still present in the **union** of remaining rows (same keyed **`Symbol`** → Yahoo mapping and **`ticker \| qty`** cost behavior as before). The first **ACCOUNT** chip is **`TOTALS!`** (synthetic): every row across **non-hidden** accounts from **all** loaded CSVs (hiding an account with **`[×]`** removes it from **TOTALS!** too; removing a file or clearing drops rows from that source), with **TOTAL** summing **VALUE**, **COST** (where known), and **P/L $**; each real account name gets its own chip with **`[×]`** to hide it until you clear files or that account disappears from the merged imports. Real account chips are sorted **A→Z by Account Name** (after **TOTALS!**), same ordering idea as symbol **A↕Z** in watchlist-style panels. **Yahoo** drives **PRICE**/**VALUE** for normal tickers (CSV **Last Price** is still never shown). If **Symbol** contains a double asterisk (`**`, e.g. `SPAXX**`, `CORE**`, `FDRXX**`) **or** the base ticker is **five or more letters ending in `XX`** (Fidelity-style sweep / gov’t money market, e.g. `FTEXX`, `FZDXX`, `FMPXX`), **VALUE** is taken from the CSV **Current Value** column only — **no Yahoo refresh**; **PRICE** is implied as value ÷ **QTY** when quantity is present (map **SYM** to a listed ticker if you want live quotes instead). Shorter tickers ending in `XX` (e.g. `VXX`) stay on Yahoo. **QTY** prints as a whole number when it is integral, otherwise up to **two** decimal places. In the holdings grid, **PRICE** uses **two decimal places** where shown; **VALUE**, **COST**, dollar **P/L $**, and the **TOTAL** row use **whole dollars** (no cents); **P/L %** stays a whole percent. **DISPLAY** (after a CSV is loaded) matches the watchlist pattern: **ENTERED** (order = each file in load order, then row order within the file), **A↕Z**, **% PORT** (sorts by share of total **VALUE**; adds a **%PORT** column), and **HEAT MAP** (size ∝ value, color = day change%). **% PORT** / **HEAT MAP** merge by **Yahoo symbol plus Fidelity `Symbol`** so two different restricted / CUSIP lines mapped to the same ticker stay **separate rows** with their own **COST** edits. **SYM** column: click the identifier, type the Yahoo ticker, Enter (under **TOTALS!**, the account name appears after the symbol). **COST** shows Fidelity cost basis when the CSV has it; otherwise click **—** and enter **average cost per share**; on **Enter** the app multiplies by **QTY** and stores total basis like Fidelity’s “Cost Basis Total”. For **numeric restricted `Symbol`** cells (CUSIP-style ids), manual cost is keyed by **`id:SYMBOL|quantity`** so the same Yahoo ticker and quantity on **different** ids never collide. **`[EXPORT]`** JSON includes parsed **`externalSources`** rows plus **`externalSymbolOverrides`**, **`externalCostBasisOverrides`**, and **`restrictedLotPrefs`** (SYM + manual total per numeric id) so you can remove CSVs and reload later without re-entering those mappings. **TOTAL** aggregate **P/L %** is **—** (not a blended portfolio percent). Value and P/L use live price × quantity vs cost when both exist (or CSV **Current Value** vs cost on the sweep / `**` lines); otherwise those cells show **—** until data is available. |
 
 ### Per-row extras
@@ -124,14 +125,15 @@ On any **price** panel (**STOCKS**, **INDICES**, **CRYPTO**, **FOREX**, **COMMOD
 - **ENTERED** — table in the order you typed symbols  
 - **A↔Z** / **%** — sort the table by symbol or day change  
 - **HEAT MAP** — same symbol list as the table, but as a Bloomberg-style **squarified treemap**: tiles sized by market cap, colored on a diverging red↔green ramp by day change, grouped into sector buckets  
+- **CURVE** (TREASURIES only) — 13W / 5Y / 10Y / 30Y yield curve from the same Yahoo quotes. Flags **INVERTED** when 10Y is below the 13-week bill. Click a point for the ticker drilldown.
 
-**HEAT MAP** toggles off when you pick **ENTERED** or a sort chip (or click **HEAT MAP** again). There is no separate “heat map panel type” and no **SOURCE** dropdown — the treemap always reflects **this** panel’s symbols.
+**HEAT MAP** toggles off when you pick **ENTERED** or a sort chip (or click **HEAT MAP** again). **CURVE** is TREASURIES-only. There is no separate “heat map panel type” and no **SOURCE** dropdown — the treemap always reflects **this** panel’s symbols.
 
 Click any tile to open the ticker drilldown. Sector weights come from Yahoo’s fundamentals endpoint; first paint uses equal-weighted `UNCLASSIFIED` tiles and re-lays out as sectors resolve.
 
 ### Physical-world risk feeds (seismic + tropical cyclones)
 
-Three panel types surface structured, real-world events that move markets before the news cycle prices them in. They render in the same list-with-drilldown shape as `NEWS`, auto-refresh on the same tick as quotes, and drop into the existing grid without any UI rethink.
+Four panel types surface structured, real-world events that move markets before the news cycle prices them in. They render in the same list-with-drilldown shape as `NEWS`, auto-refresh on the same tick as quotes, and drop into the existing grid without any UI rethink.
 
 #### How it helps investors
 
@@ -147,13 +149,15 @@ Three panel types surface structured, real-world events that move markets before
 
 - **EARTH EVENTS (NASA)** — NASA EONET `events/geojson` (open events, last 14 days). **FILTER** chips narrow one list and one optional globe: wildfires (utilities / REITs / insurers), volcanoes (airlines / cargo), dust & haze (solar / ports), drought (ag / barges), severe storms, sea/lake ice, landslides. Tray tooltips spell out the **investment angle**; this is **not** armed-conflict mapping (use `NEWS` for that narrative). Same **DISPLAY → GLOBE** pattern as seismic/storms; coastlines load from Natural Earth via jsDelivr.
 
+- **SPACE WEATHER** — NOAA SWPC planetary K-index + watches/warnings. **No API key.** Kp bar and G-scale (G1 = Kp≥5). Maps to `XLU` / grid, GPS logistics, polar aviation, and satellite names. G3+ is the tape-moving threshold.
+
 (The internal state key for tropical cyclones is `storms` — short, snake-friendly — but the user-facing label is `TROPICAL CYCLONES` because that's the meteorological umbrella the NHC uses; tropical depressions, tropical storms, and hurricanes are all tropical cyclones at different intensities.)
 
 #### Chokepoints news preset
 
 Complementing the structured feeds above, `NEWS` gains a **Chokepoints** topic preset — a curated Google News query for shipping / supply-chain disruption (Red Sea, Suez, Panama, Strait of Hormuz, tanker incidents). Ripples into oil (`CL=F`), nat-gas (`NG=F`), container shippers, and the dry-bulk ETF (`BDRY`) before the move shows in price panels. No new infrastructure — rides on the existing news engine.
 
-All three structured hazard feeds refresh on the same 60s tick as quotes and news.
+All four structured hazard feeds refresh on the same 60s tick as quotes and news.
 
 ### EIA integration
 
@@ -260,29 +264,68 @@ Don't know the ticker? Start typing the company name — autocomplete will sugge
 
 ## Data sources
 
-Every number on the screen is from one of these free, public sources. No API key is required for any of them.
+Every number on the screen is from a **free, public** source. **FLIGHTS and VESSELS need no key.** An optional free [aisstream.io](https://aisstream.io/) WebSocket key is only a faster AIS overlay. There is no paid Bloomberg / Polygon / FlightAware / MarineTraffic subscription anywhere in this app.
 
-| Panel | Primary source | Fallback | Why |
+### Sites we use
+
+| Use | Site we call | Endpoint | API key? | Better free no-key option? |
+|---|---|---|---|---|
+| Stocks / indices / commodities / treasuries | [Yahoo Finance](https://query1.finance.yahoo.com/v8/finance/chart/) | `query1.finance.yahoo.com/v8/finance/chart/{symbol}` (via CORS proxy) | **No** | No. Polygon, Finnhub, Alpha Vantage, Twelve Data all need keys. Unofficial Yahoo is still the only broad keyless source that covers equities **and** futures + treasuries. |
+| Ticker search / autocomplete | Yahoo Finance search | `query1.finance.yahoo.com/v1/finance/search` (via proxy) | **No** | Same as quotes. |
+| Heat map / drilldown fundamentals | Yahoo | `ws/fundamentals-timeseries` + `v1/search` (via proxy) | **No** | Same as quotes. |
+| Crypto | [Binance](https://api.binance.com/api/v3/ticker/24hr) then [CoinGecko](https://www.coingecko.com/en/api) | `api.binance.com/api/v3/ticker/24hr` then `api.coingecko.com/api/v3/simple/price` | **No** | Binance is CORS-open and usually faster; CoinGecko is the fallback; Yahoo last. |
+| Forex | [open.er-api.com](https://open.er-api.com) | `/v6/latest/{base}` | **No** | Also CORS-open. Frankfurter (ECB) is keyless too; ER-API is USD-based and matches our pairs. Yahoo is the fallback. |
+| News | [Google News RSS](https://news.google.com/rss/search) | `news.google.com/rss/search?q=…` (via proxy) | **No** | Reuters / BBC RSS are keyless but cannot do ticker/topic search. Google News is still the best keyless search RSS. |
+| EIA Today in Energy | [U.S. EIA](https://www.eia.gov/rss/todayinenergy.xml) | `eia.gov/rss/todayinenergy.xml` (via proxy) | **No** | This **is** the official feed. The numeric EIA v2 API (`api.eia.gov`) **does** need a key — we deliberately do not call it. |
+| Economic calendar | Computed in-browser | — | **No** | Schedule math only. Row titles link to BLS / Fed / BEA / EIA pages. |
+| Movers / VIX / sentiment | Derived locally | — | **No** | No extra network call. |
+| Prediction markets | [Polymarket Gamma](https://docs.polymarket.com/api-reference/introduction) | `gamma-api.polymarket.com/markets` (via proxy) | **No** | This **is** the exchange API. |
+| Prediction history | [Polymarket CLOB](https://docs.polymarket.com/api-reference/clob) | `clob.polymarket.com/prices-history` | **No** | CORS-open; direct fetch. |
+| Seismic events | [USGS](https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson) | `4.5_week.geojson` | **No** | Official feed. CORS-open. |
+| Tropical cyclones | [NOAA NHC](https://www.nhc.noaa.gov/CurrentStorms.json) | `CurrentStorms.json` (via proxy) | **No** | Official feed. |
+| Earth events | [NASA EONET](https://eonet.gsfc.nasa.gov/) | `api/v3/events/geojson` | **No** | Official feed. CORS-open. |
+| Space weather | [NOAA SWPC](https://services.swpc.noaa.gov/) | `products/noaa-planetary-k-index.json` + `products/alerts.json` | **No** | Official, CORS-open. Kp + G-scale graphic + alert list. |
+| Globe coastlines | Natural Earth via jsDelivr | `ne_110m_coastline.geojson` | **No** | Static GeoJSON. |
+| **FLIGHTS** (nearby aircraft) | [airplanes.live](https://airplanes.live/) ∪ [adsb.lol](https://api.adsb.lol/) ∪ [adsb.fi](https://adsb.fi/) ∪ [OpenSky](https://opensky-network.org/) | See [FLIGHTS APIs](#flights-ads-b--no-key) below | **No** | **These are the best keyless ADS-B APIs.** FlightRadar24, FlightAware, and ADS-B Exchange RapidAPI all require keys. |
+| **FLIGHTS** (origin → destination) | [adsbdb.com](https://www.adsbdb.com/) | `api.adsbdb.com/v0/callsign/{cs}` | **No** | Best keyless callsign → route DB; cached 24h in memory. |
+| Map tiles (FLIGHTS + VESSELS) | [CARTO Dark Matter](https://carto.com/basemaps/) | `{a-d}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png` | **No** | CORS-open OSM-derived dark tiles. |
+| Address / place geocoding | [OpenStreetMap Nominatim](https://nominatim.openstreetmap.org/) | `search?q=&format=json` | **No** | Standard keyless geocoder (≤ 1 req/sec). Mapbox / Google need keys. |
+| **VESSELS** (live AIS) | [Open Waters](https://openwaters.io/ais/) ∪ optional [aisstream.io](https://aisstream.io/) | `wss://ais.openwaters.io/v1/stream` + `GET /v1/vessels` ; optional `wss://stream.aisstream.io/v0/stream` | **No** (aisstream key optional) | Open Waters is the keyless global path (AISHub ~5 min + Norway/Finland live). aisstream is an optional faster overlay. Unioned by MMSI. |
+
+### FLIGHTS (ADS-B) — no key
+
+Four public ADS-B feeds are queried **in parallel** and unioned by ICAO hex (richest record wins). Each is tried **direct first**, then via the shared CORS proxy rotation. airplanes.live picked up most of the ex-ADS-B Exchange feeder network when ADSBX went paid in 2023, so US coverage is usually strongest.
+
+| Source | Endpoint | Key? | Role |
 |---|---|---|---|
-| Crypto | [CoinGecko public API](https://www.coingecko.com/en/api) | Yahoo via proxy | CoinGecko is CORS-open — works without a proxy |
-| Forex | [open.er-api.com](https://open.er-api.com) | Yahoo via proxy | Also CORS-open |
-| Stocks / Indices / Commodities / Bonds | [Yahoo Finance chart endpoint](https://query1.finance.yahoo.com/v8/finance/chart/) | Proxy rotation: allorigins → codetabs → corsproxy | Yahoo has no CORS header, so a public proxy is needed |
-| Ticker search / autocomplete | Yahoo Finance search endpoint (via proxy) | — | |
-| News | [Google News RSS](https://news.google.com/rss/search) (via proxy) | — | RSS parsed with `DOMParser` |
-| Economic calendar (macro + energy schedule) | Computed client-side from US release schedule | — | CPI, NFP, FOMC 2026, PCE, GDP + WPSR / Nat Gas Storage / STEO weekday math — schedule only, **no API calls** |
-| EIA Today in Energy | [`https://www.eia.gov/rss/todayinenergy.xml`](https://www.eia.gov/rss/todayinenergy.xml) (via proxy) | — | Real RSS fetch of EIA's editorial analysis feed via the same proxy rotation as Google News |
-| Movers / VIX / Fear-Greed | Derived locally from loaded quotes | — | No network call — free reduction |
-| Prediction markets list | [Polymarket Gamma API](https://docs.polymarket.com/api-reference/introduction) (via proxy) | — | Gamma has no CORS header; same proxy rotation as Yahoo |
-| Prediction history chart | [Polymarket CLOB](https://docs.polymarket.com/api-reference/clob) `prices-history` | — | CLOB is CORS-open — direct fetch, no proxy |
-| Heat map (DISPLAY mode on symbol panels) | Yahoo `fundamentals-timeseries` + `v1/search` | — | Treemap sectors / market caps — same endpoints as drilldown; not a separate panel |
-| Seismic events | [USGS M4.5+ week feed](https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson) | — | CORS-open GeoJSON, direct fetch |
-| Tropical cyclones | [NOAA NHC `CurrentStorms.json`](https://www.nhc.noaa.gov/CurrentStorms.json) (via proxy) | — | NHC doesn't serve CORS headers; same proxy rotation as Yahoo |
-| Earth events (NASA EONET) | [`api/v3/events/geojson`](https://eonet.gsfc.nasa.gov/api/v3/events/geojson) | — | CORS-open (`Access-Control-Allow-Origin: *`); falls back to the same proxy rotation if a browser blocks direct fetch |
-| Flights (nearby aircraft) | [airplanes.live `v2/point/{lat}/{lon}/{nm}`](https://airplanes.live/) ∪ [adsb.lol](https://api.adsb.lol/) ∪ [adsb.fi](https://adsb.fi/) ∪ [OpenSky `states/all?bbox`](https://opensky-network.org/) | Proxy rotation per source | All four queried in parallel, results unioned by ICAO hex (richer record wins). Each is tried direct first, then via the shared CORS proxy rotation. airplanes.live picked up most of the ex-ADS-B Exchange feeder network when ADSBX went paid in 2023 → strong US coverage. |
-| Flights (origin / destination per callsign) | [adsbdb.com `v0/callsign/{cs}`](https://www.adsbdb.com/) | Proxy rotation | CORS-open route DB; results cached 24h in memory so a single callsign is fetched at most once per session |
-| Flights (basemap tiles) | [CARTO Dark Matter](https://carto.com/basemaps/) `{a-d}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png` | — | CORS-open OSM-derived dark raster tiles, no API key; in-memory cache + browser HTTP cache so a tile is fetched at most once per center / zoom |
-| Flights / Vessels (address & place geocoding) | [OpenStreetMap Nominatim](https://nominatim.openstreetmap.org/) `search?q=&format=json` | Proxy rotation | CORS-open; only called when the user types a non-numeric **CENTER** input. Asks for ≤ 1 req/sec — the panel only fires one per CENTER edit, so we're well under |
-| Vessels (live AIS) | [aisstream.io](https://aisstream.io/) `wss://stream.aisstream.io/v0/stream` | — | Free global AIS over WebSocket; requires a **one-time free API key** (no keyless global AIS feed exists). One shared connection across all VESSELS panels, subscribed to each panel's bounding box; `PositionReport` + `ShipStaticData` merged by MMSI; vessels age out after 10 min |
+| [airplanes.live](https://airplanes.live/) | `https://api.airplanes.live/v2/point/{lat}/{lon}/{nm}` | **No** | Primary. Unfiltered community ADS-B + MLAT. |
+| [adsb.lol](https://api.adsb.lol/) | `https://api.adsb.lol/v2/lat/{lat}/lon/{lon}/dist/{nm}` | **No** | Same v2 JSON shape; overlapping European / global coverage. |
+| [adsb.fi](https://opendata.adsb.fi/) | `https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{nm}` | **No** | Same v2 shape; rate-limited ~1 req/sec. |
+| [OpenSky Network](https://opensky-network.org/) | `https://opensky-network.org/api/states/all?lamin&lomin&lamax&lomax` | **No** (anonymous) | Positional fallback. Anonymous access is **credit-limited** (~400 credits/day, ~10s resolution). A registered OpenSky OAuth client raises the cap — we **do not** use that, to keep FLIGHTS keyless. OpenSky also carries no type/operator metadata, so it loses the union when a richer record exists. |
+| [adsbdb.com](https://www.adsbdb.com/) | `https://api.adsbdb.com/v0/callsign/{cs}` | **No** | Callsign → airline / origin / destination. |
+
+We **do not** use FlightRadar24, FlightAware, or ADS-B Exchange RapidAPI — all of those need API keys (and ADSBX's public API went paid in 2023).
+
+### VESSELS (AIS) — keyless by default, optional faster key
+
+Live ship positions **do not require a key**. The terminal always opens [Open Waters](https://openwaters.io/ais/):
+
+```
+wss://ais.openwaters.io/v1/stream     (subscribe + snapshot:true, no token)
+GET https://ais.openwaters.io/v1/vessels?bbox=minLat,minLon,maxLat,maxLon
+```
+
+AISHub worldwide is typically **1–6 minutes** behind; Norway / Finland / volunteer stations are live. That delay is accepted so chokepoints (Hormuz, Singapore, Suez) still show without signup.
+
+**Optional faster overlay:** paste a free [aisstream.io](https://aisstream.io/) key (GitHub login, no payment) in the VESSELS tray → **AIS KEY** → **TEST KEY**. Stored in your browser only. Both feeds union by MMSI (fresher position wins).
+
+**How to get the optional aisstream key:**
+
+1. Open [aisstream.io](https://aisstream.io/) → sign in with **GitHub**.
+2. Open **Account** → create an API key.
+3. VESSELS tray → **AIS KEY** → paste → **TEST KEY**.
+
+Open Waters anonymous limits (~10°×10°, ~20 msg/sec) are enough for a 100 nm panel. MarineTraffic / VesselFinder stay unused (paid).
 
 ### CORS proxies tried in order
 
@@ -336,6 +379,7 @@ This is an honest list. The whole point of the project is that everything's free
 5. **Economic calendar uses heuristics.** CPI is assumed mid-month, NFP is first-Friday, FOMC dates are hardcoded for 2026. These rules are accurate most of the time but not authoritative — check the BLS / Fed sites for the final release schedule.
 6. **No options chains, no order entry, no intraday charts.** This is a dashboard, not a trading platform.
 7. **Single HTML file deliberately.** Simplicity > features. No bundler, no package.json to worry about, just open the file.
+8. **VESSELS is keyless via Open Waters.** AISHub worldwide can lag ~5 min; quiet boxes can still be empty. Paste an optional aisstream.io key for a faster live overlay. Use **TEST KEY** only to check that overlay.
 
 ---
 
@@ -349,6 +393,9 @@ Same cause — Google News RSS has to go through a proxy. Try a different news t
 
 ### Crypto panel shows prices but stocks don't
 This is **expected** when CORS proxies are all down. Crypto uses CoinGecko directly (CORS-open), which doesn't need a proxy. Stocks require a proxy because Yahoo doesn't serve CORS headers.
+
+### VESSELS panel is empty
+Open Waters (no key) should still connect. Try Hormuz, Singapore, or Dover, or bump the radius. Coverage is volunteer + AISHub (~5 min lag). An optional aisstream.io key in **AIS KEY** can add a faster live overlay; **TEST KEY** only checks that overlay.
 
 ### I want to reset to defaults
 In DevTools console:
@@ -378,7 +425,7 @@ rothberg-terminal/
 
 - **Visual design:** Bloomberg Terminal (the real one) — phosphor green on CRT black is the canonical financial terminal aesthetic.
 - **Font:** [IBM Plex Mono](https://www.ibm.com/plex/) — hand-designed for dense technical data.
-- **Data:** Yahoo Finance (unofficial public endpoints), CoinGecko, open.er-api.com, Google News, BLS/Fed/BEA release schedules.
+- **Data:** Yahoo Finance (unofficial public endpoints), Binance, CoinGecko, open.er-api.com, Google News, BLS/Fed/BEA/EIA, USGS, NOAA NHC, NASA EONET, NOAA SWPC, airplanes.live / adsb.lol / adsb.fi / OpenSky, adsbdb.com, Open Waters AIS (no key) + optional aisstream.io, OpenStreetMap Nominatim, CARTO basemaps.
 - **CORS bridging:** the maintainers of allorigins.win, codetabs, and corsproxy.io — free infrastructure that makes single-HTML-file dashboards possible.
 
 ---

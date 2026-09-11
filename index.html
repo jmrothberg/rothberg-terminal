@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.7.11</title>
-    <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
+    <title>ROTHBERG TERMINAL v1.8.0</title>
+    <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys except an optional aisstream.io key for faster AIS.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
     <meta property="og:image" content="https://jmrothberg.github.io/rothberg-terminal/JMRs_Bloomberg.png">
@@ -953,6 +953,27 @@
         .storm-sev-major      { color: var(--color-negative); border-color: var(--color-negative); }
         .storm-sev-severe     { color: var(--bg-primary); background: var(--color-negative); border-color: var(--color-negative); }
 
+        /* TREASURIES DISPLAY → CURVE — 13W/5Y/10Y/30Y par-ish Yahoo yields. */
+        .yield-curve-wrap { padding: 8px 4px 4px; }
+        .yield-curve-head {
+            display: flex; justify-content: space-between; align-items: baseline;
+            gap: 10px; margin-bottom: 6px; font-size: 10px;
+        }
+        .yield-curve-head .yc-spread { color: var(--text-secondary); }
+        .yield-curve-head .yc-inv { color: var(--color-negative); font-weight: 600; }
+        .yield-curve-svg { width: 100%; height: 180px; display: block; }
+        .yield-curve-hint { font-size: 9px; color: var(--text-dim); margin-top: 4px; }
+
+        /* SPACE WEATHER (NOAA SWPC) — Kp bar + alerts. No API key. */
+        .swpc-kp-wrap { padding: 6px 2px 8px; border-bottom: 1px dashed var(--border-color); margin-bottom: 6px; }
+        .swpc-kp-meta { font-size: 10px; color: var(--text-secondary); margin-bottom: 5px; display: flex; gap: 8px; flex-wrap: wrap; }
+        .swpc-kp-bar { display: flex; gap: 3px; height: 14px; }
+        .swpc-kp-seg { flex: 1; background: rgba(0,80,0,0.35); border: 1px solid var(--border-color); }
+        .swpc-kp-seg.on-g0 { background: var(--text-dim); border-color: var(--text-dim); }
+        .swpc-kp-seg.on-g1 { background: var(--text-accent); border-color: var(--text-accent); }
+        .swpc-kp-seg.on-g2 { background: #ffb000; border-color: #ffb000; }
+        .swpc-kp-seg.on-g3 { background: var(--color-negative); border-color: var(--color-negative); }
+
         /* NASA EONET earth-events badge (list rows) — reuses severity ramp by impact tier */
         .eonet-cat {
             display: inline-block;
@@ -1233,7 +1254,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.7.11</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.8.0</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1266,10 +1287,9 @@
      panel (same symbols as the table; no separate panel type).
 
   4. LEADING-INDICATOR RISK SIGNALS — SEISMIC EVENTS,
-     TROPICAL CYCLONES, EARTH EVENTS (NASA). Physical-world
-     events, structured as lat/lon/category (and size when
-     NASA provides it), that hit the feed before the news
-     cycle prices them in.
+     TROPICAL CYCLONES, EARTH EVENTS (NASA), SPACE WEATHER.
+     Physical-world events (lat/lon/category, plus NOAA Kp)
+     that hit the feed before the news cycle prices them in.
 
 The discipline for adding more panel types: free CORS-friendly
 API, threshold that maps to a tradeable instrument, fits the
@@ -1283,7 +1303,8 @@ contact with a trading UI.</pre>
                     <pre>Click any panel title (e.g. "INDICES ▾") to pull down its tray.
 Click a panel-type chip: [STOCKS] [INDICES] [CRYPTO] [FOREX]
 [COMMODITIES] [TREASURIES] [NEWS] [PREDICTION MARKETS]
-[CALENDAR] [MOVERS] [SEISMIC] [STORMS] [EARTH EVENTS].
+[CALENDAR] [MOVERS] [SEISMIC] [STORMS] [EARTH EVENTS]
+[SPACE WEATHER] [FLIGHTS] [VESSELS].
 The panel's title, content, and defaults switch instantly.</pre>
                 </div>
 
@@ -1304,7 +1325,9 @@ Symbol formats:
 On any price panel (WATCHLIST, INDICES, CRYPTO, …), the tray's
 DISPLAY row switches the main view: ENTERED / A↔Z / % sort the
 table; HEAT MAP shows the sector treemap for the same symbols
-(toggle HEAT MAP off with ENTERED or another DISPLAY chip).</pre>
+(toggle HEAT MAP off with ENTERED or another DISPLAY chip).
+TREASURIES also has DISPLAY → CURVE (13W/5Y/10Y/30Y yield
+curve; inversion = 10Y below the bill).</pre>
                 </div>
 
                 <div class="help-section">
@@ -1567,16 +1590,22 @@ WHAT'S IN THE LIST
     DISPLAY → GLOBE: same filtered events on the rotating
     globe with Natural Earth coastlines.
 
-Seismic, cyclones, and Earth events refresh on the same 60s
-tick as quotes and news.</pre>
+  SPACE WEATHER — NOAA SWPC planetary K-index + watches.
+    No API key. Kp bar (0–9) and G-scale. G1+ (Kp≥5) is
+    the investing threshold: utilities/grid (XLU), GPS
+    logistics, polar aviation, satellite names. Alerts
+    list is the current SWPC bulletin.
+
+Seismic, cyclones, Earth events, and space weather refresh
+on the same 60s tick as quotes and news.</pre>
                 </div>
 
                 <div class="help-section">
                     <div class="help-section-title">DATA SOURCES (ALL FREE / PUBLIC)</div>
                     <pre>Quotes:        Yahoo Finance (via public CORS proxies)
-Crypto backup: CoinGecko public API
+Crypto:        Binance 24hr ticker (CORS, faster) then CoinGecko
 Forex backup:  open.er-api.com
-Bonds backup:  US Treasury Fiscal Data API
+Treasuries:    Yahoo yields · DISPLAY → CURVE from ^IRX/^FVX/^TNX/^TYX
 Fundamentals: Yahoo fundamentals-timeseries + v1/search
 Prediction:   Polymarket Gamma (proxied) + CLOB (direct)
 News:         Google News RSS (proxied)
@@ -1587,7 +1616,10 @@ Movers/VIX:   Derived locally from loaded quotes
 Seismic:      USGS earthquake.usgs.gov M4.5+ week feed (direct)
 Cyclones:     NOAA NHC CurrentStorms.json (proxied)
 Earth events: NASA EONET api/v3/events/geojson (direct CORS;
-              falls back to same public proxies if needed)</pre>
+              falls back to same public proxies if needed)
+Space weather: NOAA SWPC Kp + alerts (no key)
+Flights:      airplanes.live ∪ adsb.lol ∪ adsb.fi ∪ OpenSky (no key)
+Vessels:      Open Waters AIS (no key, global) ∪ optional aisstream.io key</pre>
                 </div>
 
                 <div class="help-section">
@@ -1691,12 +1723,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             seismic:     { label: 'SEISMIC EVENTS',      usesSymbols: false, usesNews: false, supportsGeoDisplay: true },
             storms:      { label: 'TROPICAL CYCLONES',   usesSymbols: false, usesNews: false, supportsGeoDisplay: true },
             eonet:       { label: 'EARTH EVENTS (NASA)', usesSymbols: false, usesNews: false, supportsGeoDisplay: true },
+            swpc:        { label: 'SPACE WEATHER',       usesSymbols: false, usesNews: false },
             flights:     { label: 'FLIGHTS',             usesSymbols: false, usesNews: false, supportsFlightMap: true },
             vessels:     { label: 'VESSELS (AIS)',       usesSymbols: false, usesNews: false, supportsFlightMap: true },
             externalAccount: { label: 'EXTERNAL ACCOUNT', usesSymbols: false, usesNews: false },
         };
 
-        const PANEL_TYPE_ORDER = ['stocks','indices','crypto','forex','commodities','bonds','news','prediction','calendar','movers','seismic','storms','eonet','flights','vessels','externalAccount'];
+        const PANEL_TYPE_ORDER = ['stocks','indices','crypto','forex','commodities','bonds','news','prediction','calendar','movers','seismic','storms','eonet','swpc','flights','vessels','externalAccount'];
 
         const POLYMARKET_FILTERS = [
             { key: 'all',       label: 'All',       slug: null },
@@ -1871,12 +1904,14 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         }
 
         // ============================================================
-        // VESSELS (AIS ship tracking) — live data over WebSocket from
-        // aisstream.io (free, but needs a one-time free API key). Unlike
-        // ADS-B there is no keyless GLOBAL AIS feed; aisstream covers the
-        // whole world incl. the Strait of Hormuz once a key is pasted in.
+        // VESSELS (AIS ship tracking) — two feeds unioned by MMSI:
+        //   1) Open Waters v1 (NO KEY): live WS + HTTP snapshot. Global via
+        //      AISHub (~5 min lag) plus Norway/Finland/volunteer live.
+        //   2) aisstream.io (optional free key): faster live overlay when pasted.
         // ============================================================
         const AIS_WS_URL = 'wss://stream.aisstream.io/v0/stream';
+        const AIS_OW_WS_URL = 'wss://ais.openwaters.io/v1/stream';
+        const AIS_OW_VESSELS_URL = 'https://ais.openwaters.io/v1/vessels';
         const AIS_VESSEL_TTL_MS = 10 * 60 * 1000;   // drop vessels not heard from in 10 min
         const VESSEL_DEFAULT_CENTER = { lat: 26.57, lon: 56.25, label: 'Strait of Hormuz' };
         const VESSEL_RADII = [
@@ -1919,16 +1954,27 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         }
         // Shared global vessel store + single shared WebSocket (see AIS manager).
         const aisVessels = new Map();   // mmsi → { lat, lon, sog, cog, heading, navStatus, name, shipTypeCode, group, dest, callsign, imo, lengthM, lastSeen }
-        let aisConn = null;             // { ws, key, boxesKey } | null
-        let aisStatus = 'idle';         // idle | no-key | connecting | live | disconnected | error
+        let aisConn = null;             // aisstream { ws, key, boxesKey } | null
+        let owConn = null;              // Open Waters { ws, boxesKey } | null
+        let aisStatus = 'idle';         // idle | connecting | subscribed | live | nodata | disconnected | error
         let aisReconnectTimer = null;
         let aisReconnectDelay = 2000;
+        let owReconnectTimer = null;
+        let owReconnectDelay = 2000;
         let aisRepaintTimer = null;
         let aisMsgCount = 0;            // vessel frames plotted this connection (diagnostics)
         let aisRawCount = 0;            // ALL frames received this connection (incl. base stations / errors)
         let aisDataWatchdog = null;     // fires if no frame arrives shortly after subscribing
+        let owDataWatchdog = null;
         let aisLastError = '';          // last error text from an aisstream error frame
         let aisKeyVerified = false;     // set true once a key test (or live stream) proves the key works
+        let aisKeyTestInProgress = false;
+        let owLive = false;             // Open Waters delivered at least one vessel this session
+
+        // NOAA SWPC — planetary K-index + watches/warnings. CORS-open, no key.
+        // Kp≥5 (G1+) is the investing threshold: grid, GPS, polar aviation, sats.
+        const SWPC_KP_URL = 'https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json';
+        const SWPC_ALERTS_URL = 'https://services.swpc.noaa.gov/products/alerts.json';
 
         const CALENDAR_CATEGORIES = [
             { key: 'all',    label: 'All' },
@@ -2600,7 +2646,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
         async function fetchQuoteWithFallback(symbol) {
             // For crypto and forex we prefer CORS-open direct APIs (no proxy needed):
-            // CoinGecko and open.er-api.com both serve Access-Control-Allow-Origin: *.
+            // Binance (faster) then CoinGecko, and open.er-api.com, all serve CORS *.
             // This keeps those panels working even when all CORS proxies are down.
             if (symbol.endsWith('-USD')) {
                 const cg = await fetchCryptoFallback(symbol);
@@ -2622,6 +2668,43 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         }
 
         async function fetchCryptoFallback(symbol) {
+            const BN_MAP = {
+                'BTC-USD': 'BTCUSDT', 'ETH-USD': 'ETHUSDT', 'SOL-USD': 'SOLUSDT',
+                'DOGE-USD': 'DOGEUSDT', 'XRP-USD': 'XRPUSDT', 'ADA-USD': 'ADAUSDT',
+                'AVAX-USD': 'AVAXUSDT', 'DOT-USD': 'DOTUSDT', 'LTC-USD': 'LTCUSDT',
+                'LINK-USD': 'LINKUSDT', 'BCH-USD': 'BCHUSDT',
+            };
+            const bnSym = BN_MAP[symbol];
+            if (bnSym) {
+                try {
+                    const url = `https://api.binance.com/api/v3/ticker/24hr?symbol=${bnSym}&_t=${Date.now()}`;
+                    const res = await fetch(url, { cache: 'no-store' });
+                    if (res.ok) {
+                        const j = await res.json();
+                        const price = Number(j.lastPrice);
+                        const changePct = Number(j.priceChangePercent);
+                        if (Number.isFinite(price)) {
+                            const previousClose = Number.isFinite(changePct) ? price / (1 + changePct / 100) : price;
+                            return {
+                                price,
+                                change: Number.isFinite(changePct) ? price - previousClose : 0,
+                                changePercent: Number.isFinite(changePct) ? changePct : 0,
+                                previousClose,
+                                shortName: symbol,
+                                marketState: 'OPEN',
+                                currency: 'USD',
+                                volume: Number(j.volume) || null,
+                                dayHigh: Number(j.highPrice) || null,
+                                dayLow: Number(j.lowPrice) || null,
+                                yearHigh: null,
+                                yearLow: null,
+                                closes: [],
+                                timestamps: [],
+                            };
+                        }
+                    }
+                } catch (_e) { /* fall through to CoinGecko */ }
+            }
             const CG_MAP = {
                 'BTC-USD': 'bitcoin', 'ETH-USD': 'ethereum', 'SOL-USD': 'solana',
                 'DOGE-USD': 'dogecoin', 'XRP-USD': 'ripple', 'ADA-USD': 'cardano',
@@ -4290,6 +4373,82 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
         }
 
+        function swpcGScale(kp) {
+            const k = Number(kp) || 0;
+            if (k >= 9) return { g: 5, label: 'G5 Extreme' };
+            if (k >= 8) return { g: 4, label: 'G4 Severe' };
+            if (k >= 7) return { g: 3, label: 'G3 Strong' };
+            if (k >= 6) return { g: 2, label: 'G2 Moderate' };
+            if (k >= 5) return { g: 1, label: 'G1 Minor' };
+            return { g: 0, label: 'Quiet' };
+        }
+
+        async function fetchSwpcBundle() {
+            async function one(url) {
+                try {
+                    const res = await fetch(url + (url.includes('?') ? '&' : '?') + '_t=' + Date.now(), { cache: 'no-store' });
+                    if (res.ok) return await res.json();
+                } catch (_e) { /* proxy */ }
+                try { return await fetchViaProxy(url); } catch (_e2) { return null; }
+            }
+            const [kpRaw, alertsRaw] = await Promise.all([one(SWPC_KP_URL), one(SWPC_ALERTS_URL)]);
+            let kpSeries = [];
+            if (Array.isArray(kpRaw) && kpRaw.length) {
+                const rows = Array.isArray(kpRaw[0]) ? kpRaw.slice(1) : kpRaw;
+                kpSeries = rows.slice(-16).map(r => {
+                    if (Array.isArray(r)) return { t: r[0], kp: Number(r[1]) };
+                    return { t: r.time_tag || r.time, kp: Number(r.Kp != null ? r.Kp : r.kp_index) };
+                }).filter(x => Number.isFinite(x.kp));
+            }
+            const lastKp = kpSeries.length ? kpSeries[kpSeries.length - 1].kp : null;
+            const alerts = Array.isArray(alertsRaw) ? alertsRaw.slice(0, 25).map(a => {
+                const msg = String(a.message || a.Message || '');
+                const first = msg.split(/\n/).map(s => s.trim()).find(Boolean) || (a.product_id || 'SWPC');
+                const when = a.issue_datetime || a.issue_date || '';
+                return { id: a.product_id || first, when, headline: first.slice(0, 160), raw: msg };
+            }) : [];
+            return { lastKp, kpSeries, alerts, failed: lastKp == null && !alerts.length };
+        }
+
+        async function refreshSwpcPanels() {
+            const ids = state.layout.filter(pid => state.panels[pid]?.type === 'swpc');
+            if (!ids.length) return;
+            const bundle = await fetchSwpcBundle();
+            for (const pid of ids) {
+                state.panels[pid]._swpc = bundle;
+            }
+        }
+
+        function renderSwpc(panel) {
+            const b = panel._swpc;
+            if (!b) return `<div class="loading">LOADING NOAA SPACE WEATHER…</div>`;
+            if (b.failed) return `<div class="error-message">NOAA SWPC UNAVAILABLE — [R] to retry.</div>`;
+            const gs = swpcGScale(b.lastKp);
+            const kpStr = b.lastKp != null ? b.lastKp.toFixed(1) : '—';
+            const segs = Array.from({ length: 9 }, (_, i) => {
+                const on = b.lastKp != null && (i + 1) <= Math.round(b.lastKp);
+                const gcls = i >= 6 ? 'on-g3' : i >= 4 ? 'on-g2' : i >= 2 ? 'on-g1' : 'on-g0';
+                return `<span class="swpc-kp-seg${on ? ' ' + gcls : ''}"></span>`;
+            }).join('');
+            const alertHTML = (b.alerts || []).length
+                ? b.alerts.map(a => `
+                    <div class="event-item">
+                        <div class="event-meta"><span>${escapeHTML(a.when || '')}</span><span>${escapeHTML(a.id)}</span></div>
+                        <div class="event-headline">${escapeHTML(a.headline)}</div>
+                    </div>`).join('')
+                : '<div class="no-data">No SWPC watches/warnings in the current bulletin.</div>';
+            return `
+                <div class="swpc-kp-wrap">
+                    <div class="swpc-kp-meta">
+                        <span>Kp ${kpStr}</span>
+                        <span>${gs.label}</span>
+                        <span style="color:var(--text-dim)">grid · GPS · polar flights · sats</span>
+                    </div>
+                    <div class="swpc-kp-bar" title="Planetary K-index 0–9">${segs}</div>
+                </div>
+                ${alertHTML}`;
+        }
+
         // NHC's CurrentStorms.json lacks a CORS header, so route through the
         // same proxy rotation as Yahoo/Polymarket/RSS.
         async function fetchActiveStorms() {
@@ -4770,29 +4929,45 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
         }
 
-        /** (Re)open or tear down the shared aisstream.io connection to match current vessel panels. */
+        // aisstream bbox [[latMin,lonMin],[latMax,lonMax]] → Open Waters [minLat,minLon,maxLat,maxLon]
+        function aisstreamBoxToOw(box) {
+            const a = box[0] || [], c = box[1] || [];
+            const lat1 = Number(a[0]), lon1 = Number(a[1]);
+            const lat2 = Number(c[0]), lon2 = Number(c[1]);
+            return [Math.min(lat1, lat2), Math.min(lon1, lon2), Math.max(lat1, lat2), Math.max(lon1, lon2)];
+        }
+
+        function currentVesselPanels() {
+            return state.layout.map(pid => state.panels[pid]).filter(p => p && p.type === 'vessels');
+        }
+
+        /** (Re)open or tear down AIS feeds to match current VESSELS panels. Open Waters is always on (no key). */
         function ensureAisConnection() {
-            const panels = state.layout
-                .map(pid => state.panels[pid])
-                .filter(p => p && p.type === 'vessels');
+            const panels = currentVesselPanels();
             if (!panels.length) {
                 teardownAisConnection();
                 aisStatus = 'idle';
-                return;
-            }
-            const key = getAisKey();
-            if (!key) {
-                teardownAisConnection();
-                setAisStatus('no-key');
+                owLive = false;
                 return;
             }
             const boxes = panels.map(vesselPanelBBox);
+            const owBoxes = boxes.map(aisstreamBoxToOw);
+            const owBoxesKey = JSON.stringify(owBoxes);
+            if (!(owConn && owConn.boxesKey === owBoxesKey && owConn.ws && owConn.ws.readyState <= 1)) {
+                teardownOpenWatersConnection();
+                openOpenWatersConnection(owBoxes, owBoxesKey);
+            }
+            const key = getAisKey();
+            if (!key || aisKeyTestInProgress) {
+                teardownAisstreamConnection();
+                if (!owLive && aisStatus !== 'connecting' && aisStatus !== 'subscribed' && aisStatus !== 'live') {
+                    setAisStatus('connecting');
+                }
+                return;
+            }
             const boxesKey = key + '|' + JSON.stringify(boxes);
-            // Already connected with the same key + boxes → nothing to do.
-            if (aisConn && aisConn.boxesKey === boxesKey
-                && aisConn.ws && aisConn.ws.readyState <= 1) return;
-            // Key or boxes changed → reconnect fresh (aisstream subscription is set at connect).
-            teardownAisConnection();
+            if (aisConn && aisConn.boxesKey === boxesKey && aisConn.ws && aisConn.ws.readyState <= 1) return;
+            teardownAisstreamConnection();
             openAisConnection(key, boxes, boxesKey);
         }
 
@@ -4830,8 +5005,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 if (aisDataWatchdog) clearTimeout(aisDataWatchdog);
                 aisDataWatchdog = setTimeout(() => {
                     if (aisConn?.ws === ws && aisRawCount === 0) {
-                        console.warn('[VESSELS] no frames 12s after subscribe — API key likely inactive / unconfirmed, or aisstream outage');
-                        setAisStatus('nodata');
+                        console.warn('[VESSELS] no aisstream frames 12s after subscribe — API key likely inactive / unconfirmed, or aisstream outage');
+                        if (!owLive && aisVessels.size === 0) setAisStatus('nodata');
                     }
                 }, 12000);
             };
@@ -4855,14 +5030,17 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             ws.onerror = (e) => { console.warn('[VESSELS] websocket error', e); };
             ws.onclose = (ev) => {
                 if (aisConn?.ws !== ws) return;   // superseded by a newer connection
-                console.warn(`[VESSELS] socket closed (code ${ev.code}${ev.reason ? ', ' + ev.reason : ''}); received ${aisMsgCount} frames`);
-                setAisStatus(aisLastError ? 'error' : 'disconnected');
+                console.warn(`[VESSELS] aisstream closed (code ${ev.code}${ev.reason ? ', ' + ev.reason : ''}); received ${aisMsgCount} frames`);
+                aisConn = null;
+                if (!owLive && !(owConn && owConn.ws && owConn.ws.readyState === 1)) {
+                    setAisStatus(aisLastError ? 'error' : 'disconnected');
+                }
                 scheduleAisReconnect();
             };
         }
 
         function scheduleAisReconnect() {
-            if (aisReconnectTimer) return;
+            if (aisReconnectTimer || aisKeyTestInProgress) return;
             const delay = aisReconnectDelay;
             aisReconnectDelay = Math.min(aisReconnectDelay * 2, 30000);
             aisReconnectTimer = setTimeout(() => {
@@ -4871,7 +5049,17 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }, delay);
         }
 
-        function teardownAisConnection() {
+        function scheduleOwReconnect() {
+            if (owReconnectTimer) return;
+            const delay = owReconnectDelay;
+            owReconnectDelay = Math.min(owReconnectDelay * 2, 30000);
+            owReconnectTimer = setTimeout(() => {
+                owReconnectTimer = null;
+                ensureAisConnection();
+            }, delay);
+        }
+
+        function teardownAisstreamConnection() {
             if (aisReconnectTimer) { clearTimeout(aisReconnectTimer); aisReconnectTimer = null; }
             if (aisDataWatchdog) { clearTimeout(aisDataWatchdog); aisDataWatchdog = null; }
             if (aisConn && aisConn.ws) {
@@ -4880,6 +5068,175 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 try { ws.close(); } catch (_e) { /* noop */ }
             }
             aisConn = null;
+        }
+
+        function teardownOpenWatersConnection() {
+            if (owReconnectTimer) { clearTimeout(owReconnectTimer); owReconnectTimer = null; }
+            if (owDataWatchdog) { clearTimeout(owDataWatchdog); owDataWatchdog = null; }
+            if (owConn && owConn.ws) {
+                const ws = owConn.ws;
+                ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null;
+                try { ws.close(); } catch (_e) { /* noop */ }
+            }
+            owConn = null;
+        }
+
+        function teardownAisConnection() {
+            teardownAisstreamConnection();
+            teardownOpenWatersConnection();
+        }
+
+        // Open Waters v1 — no token. snapshot:true dumps last-known vessels then live traffic.
+        function openOpenWatersConnection(owBoxes, boxesKey) {
+            let ws;
+            try {
+                ws = new WebSocket(AIS_OW_WS_URL);
+            } catch (e) {
+                console.warn('[VESSELS] Open Waters WebSocket open failed:', e);
+                if (!getAisKey()) setAisStatus('error');
+                return;
+            }
+            owConn = { ws, boxesKey };
+            if (aisStatus === 'idle' || aisStatus === 'disconnected' || aisStatus === 'nodata') setAisStatus('connecting');
+            ws.onopen = () => {
+                if (owConn?.ws !== ws) { try { ws.close(); } catch (_e) {} return; }
+                try {
+                    ws.send(JSON.stringify({ type: 'subscribe', bbox: owBoxes, snapshot: true }));
+                    console.info('[VESSELS] Open Waters subscribed', JSON.stringify(owBoxes));
+                } catch (e) {
+                    console.warn('[VESSELS] Open Waters subscribe failed:', e);
+                }
+                owReconnectDelay = 2000;
+                if (aisStatus !== 'live') setAisStatus('subscribed');
+                if (owDataWatchdog) clearTimeout(owDataWatchdog);
+                owDataWatchdog = setTimeout(() => {
+                    if (owConn?.ws === ws && !owLive && aisVessels.size === 0) {
+                        console.warn('[VESSELS] Open Waters silent after subscribe — will rely on HTTP snapshot');
+                        if (aisStatus !== 'live') setAisStatus('nodata');
+                    }
+                }, 14000);
+            };
+            ws.onmessage = (ev) => {
+                let text;
+                if (typeof ev.data === 'string') text = ev.data;
+                else if (ev.data instanceof ArrayBuffer) text = new TextDecoder().decode(ev.data);
+                else text = String(ev.data);
+                let msg;
+                try { msg = JSON.parse(text); }
+                catch (_e) { return; }
+                handleOpenWatersFrame(msg);
+            };
+            ws.onerror = (e) => { console.warn('[VESSELS] Open Waters websocket error', e); };
+            ws.onclose = (ev) => {
+                if (owConn?.ws !== ws) return;
+                console.warn(`[VESSELS] Open Waters closed (code ${ev.code}${ev.reason ? ', ' + ev.reason : ''})`);
+                owConn = null;
+                owLive = false;
+                if (!(aisConn && aisConn.ws && aisConn.ws.readyState === 1)) {
+                    if (aisStatus !== 'error') setAisStatus('disconnected');
+                }
+                scheduleOwReconnect();
+            };
+        }
+
+        function upsertAisVessel(mmsi, patch, seenMs) {
+            if (!mmsi || !/^[2-7]/.test(String(mmsi))) return;
+            const now = Number.isFinite(seenMs) ? seenMs : Date.now();
+            const cur = aisVessels.get(mmsi) || {};
+            const older = cur.lastSeen && now + 1500 < cur.lastSeen;
+            const v = { ...cur, mmsi };
+            if (older) {
+                for (const [k, val] of Object.entries(patch)) {
+                    if ((v[k] == null || v[k] === '') && val != null && val !== '') v[k] = val;
+                }
+            } else {
+                Object.assign(v, patch);
+                v.mmsi = mmsi;
+                v.lastSeen = now;
+            }
+            if (v.group == null && v.shipTypeCode != null) v.group = classifyVesselType(v.shipTypeCode);
+            aisVessels.set(mmsi, v);
+            aisMsgCount++;
+            if (aisStatus !== 'live') setAisStatus('live');
+            scheduleVesselRepaint();
+        }
+
+        function handleOpenWatersFrame(msg) {
+            if (!msg || typeof msg !== 'object') return;
+            if (msg.type === 'welcome') {
+                if (aisStatus !== 'live') setAisStatus('subscribed');
+                return;
+            }
+            if (msg.type === 'error') {
+                console.warn('[VESSELS] Open Waters error:', msg.error || msg);
+                return;
+            }
+            if (msg.type !== 'event') return;
+            if (owDataWatchdog) { clearTimeout(owDataWatchdog); owDataWatchdog = null; }
+            owLive = true;
+            const mmsi = msg.mmsi != null ? String(msg.mmsi) : '';
+            const inner = msg.message || {};
+            const patch = {};
+            const lat = Number(msg.lat ?? inner.Latitude);
+            const lon = Number(msg.lon ?? inner.Longitude);
+            if (Number.isFinite(lat) && Number.isFinite(lon)) { patch.lat = lat; patch.lon = lon; }
+            const nm = (inner.Name || inner.ShipName || '').trim();
+            if (nm) patch.name = nm;
+            const typeCode = inner.Type != null ? inner.Type : inner.ShipType;
+            if (typeCode != null) { patch.shipTypeCode = Number(typeCode); patch.group = classifyVesselType(patch.shipTypeCode); }
+            if ((inner.Destination || '').trim()) patch.dest = inner.Destination.trim();
+            if ((inner.CallSign || '').trim()) patch.callsign = inner.CallSign.trim();
+            if (inner.ImoNumber != null) patch.imo = Number(inner.ImoNumber);
+            const dim = inner.Dimension || {};
+            const a = Number(dim.A), b = Number(dim.B);
+            if (Number.isFinite(a) && Number.isFinite(b) && (a + b) > 0) patch.lengthM = Math.round(a + b);
+            if (Number.isFinite(Number(inner.Sog))) patch.sog = Number(inner.Sog);
+            if (Number.isFinite(Number(inner.Cog))) patch.cog = Number(inner.Cog);
+            const th = Number(inner.TrueHeading);
+            if (Number.isFinite(th) && th >= 0 && th < 360) patch.heading = th;
+            if (inner.NavigationalStatus != null) patch.navStatus = Number(inner.NavigationalStatus);
+            const seenMs = msg.time ? Date.parse(msg.time) : Date.now();
+            upsertAisVessel(mmsi, patch, Number.isFinite(seenMs) ? seenMs : Date.now());
+        }
+
+        async function refreshVesselSnapshots() {
+            const panels = currentVesselPanels();
+            if (!panels.length) return;
+            const seen = new Set();
+            await Promise.all(panels.map(async (p) => {
+                const ow = aisstreamBoxToOw(vesselPanelBBox(p));
+                const key = ow.map(n => n.toFixed(4)).join(',');
+                if (seen.has(key)) return;
+                seen.add(key);
+                const url = `${AIS_OW_VESSELS_URL}?bbox=${ow.join(',')}`;
+                let data = null;
+                try {
+                    const res = await fetch(url, { cache: 'no-store' });
+                    if (res.ok) data = await res.json();
+                } catch (_e) { /* try proxy */ }
+                if (!data) {
+                    try { data = await fetchViaProxy(url); } catch (_e2) { return; }
+                }
+                const feats = data?.features || [];
+                for (const f of feats) {
+                    const props = f.properties || {};
+                    const coords = f.geometry?.coordinates || [];
+                    const mmsi = props.mmsi != null ? String(props.mmsi) : (f.id != null ? String(f.id) : '');
+                    const lon = Number(coords[0]), lat = Number(coords[1]);
+                    const patch = {};
+                    if (Number.isFinite(lat) && Number.isFinite(lon)) { patch.lat = lat; patch.lon = lon; }
+                    if ((props.name || '').trim()) patch.name = props.name.trim();
+                    if (props.type != null) { patch.shipTypeCode = Number(props.type); patch.group = classifyVesselType(patch.shipTypeCode); }
+                    if (Number.isFinite(Number(props.sog))) patch.sog = Number(props.sog);
+                    if (Number.isFinite(Number(props.cog))) patch.cog = Number(props.cog);
+                    const hdg = Number(props.heading);
+                    if (Number.isFinite(hdg) && hdg >= 0 && hdg < 360) patch.heading = hdg;
+                    if (props.nav_status != null) patch.navStatus = Number(props.nav_status);
+                    const seenMs = props.seen ? Date.parse(props.seen) : Date.now();
+                    upsertAisVessel(mmsi, patch, Number.isFinite(seenMs) ? seenMs : Date.now());
+                }
+                if (feats.length) owLive = true;
+            }));
         }
 
         /** Merge one parsed aisstream frame into the shared vessel store (keyed by MMSI). */
@@ -5254,7 +5611,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             try {
                 markQuoteCacheStaleBeforeFetch();
                 renderAllPanels();
-                await Promise.all([refreshQuotes(), refreshNewsPanels(), refreshPredictionPanels(), refreshSeismicPanels(), refreshStormPanels(), refreshEonetPanels(), refreshFlightPanels()]);
+                await Promise.all([refreshQuotes(), refreshNewsPanels(), refreshPredictionPanels(), refreshSeismicPanels(), refreshStormPanels(), refreshEonetPanels(), refreshFlightPanels(), refreshVesselSnapshots(), refreshSwpcPanels()]);
                 renderAllPanels();
                 if (currentDrilldown && currentDrilldown.kind === 'ticker') {
                     const dds = currentDrilldown.symbol;
@@ -5368,6 +5725,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             if (PANEL_TYPES[panel.type]?.usesSymbols && panel.display === 'heatmap') {
                 return ` <span style="color:var(--text-secondary);font-weight:400;">· HEAT MAP</span>${extTag}`;
             }
+            if (panel.type === 'bonds' && panel.display === 'curve') {
+                return ` <span style="color:var(--text-secondary);font-weight:400;">· YIELD CURVE</span>${extTag}`;
+            }
             if (panel.type === 'seismic') {
                 const m = typeof panel.minMag === 'number' ? panel.minMag : 5.5;
                 const g = geoDisplaySuffix(panel);
@@ -5387,6 +5747,12 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const g = geoDisplaySuffix(panel);
                 return ` <span style="color:var(--text-secondary);font-weight:400;">· ${escapeHTML(labStr || '—')}${g}</span>`;
             }
+            if (panel.type === 'swpc') {
+                const kp = panel._swpc?.lastKp;
+                const gs = swpcGScale(kp);
+                const kpStr = kp != null ? `Kp ${kp.toFixed(1)} · ${gs.label}` : 'NOAA SWPC';
+                return ` <span style="color:var(--text-secondary);font-weight:400;">· ${escapeHTML(kpStr)}</span>`;
+            }
             if (panel.type === 'flights') {
                 const r = getFlightRadiusNm(panel);
                 const c = getFlightCenter(panel);
@@ -5400,8 +5766,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const c = getVesselCenter(panel);
                 const mode = getVesselDisplay(panel) === 'map' ? 'MAP' : 'LIST';
                 const statusTag = aisStatus === 'live' ? '' : ` · ${aisStatus.toUpperCase()}`;
-                const count = getAisKey() ? vesselsForPanel(panel).length : null;
-                const cnt = count != null ? ` · ${count}` : '';
+                const count = vesselsForPanel(panel).length;
+                const src = getAisKey() ? 'AIS+OW' : 'OW';
+                const cnt = ` · ${count} · ${src}`;
                 return ` <span style="color:var(--text-secondary);font-weight:400;">· ${escapeHTML(c.label)} · ${r}nm · ${mode}${cnt}${statusTag}</span>`;
             }
             if (panel.type === 'calendar' && panel.category && panel.category !== 'all') {
@@ -5445,12 +5812,16 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 `).join('');
                 const sort = panel.sort || { key: null, dir: null };
                 const heatOn = panel.display === 'heatmap';
+                const curveOn = panel.type === 'bonds' && panel.display === 'curve';
                 const symLabel = sort.key === 'symbol' ? (sort.dir === 'desc' ? 'Z→A' : 'A→Z') : 'A↕Z';
                 const pctLabel = sort.key === 'change' ? (sort.dir === 'desc' ? '% HIGH→LOW' : '% LOW→HIGH') : '% ↕';
-                const symActive = !heatOn && sort.key === 'symbol' ? ' active' : '';
-                const pctActive = !heatOn && sort.key === 'change' ? ' active' : '';
-                const noneActive = !heatOn && !sort.key ? ' active' : '';
+                const symActive = !heatOn && !curveOn && sort.key === 'symbol' ? ' active' : '';
+                const pctActive = !heatOn && !curveOn && sort.key === 'change' ? ' active' : '';
+                const noneActive = !heatOn && !curveOn && !sort.key ? ' active' : '';
                 const heatActive = heatOn ? ' active' : '';
+                const curveChip = panel.type === 'bonds'
+                    ? `<button class="chip${curveOn ? ' active' : ''}" onclick="togglePanelCurveDisplay('${pid}')" title="Yield curve graphic · inversion = recession signal (10Y vs 13W)">CURVE</button>`
+                    : '';
                 symbolSection = `
                     <div class="tray-row">
                         <span class="tray-label">ADD</span>
@@ -5474,6 +5845,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         <button class="chip${symActive}" onclick="cyclePanelSort('${pid}','symbol')" title="Table · click to cycle A→Z / Z→A">${symLabel}</button>
                         <button class="chip${pctActive}" onclick="cyclePanelSort('${pid}','change')" title="Table · click to cycle high→low / low→high">${pctLabel}</button>
                         <button class="chip${heatActive}" onclick="togglePanelHeatmapDisplay('${pid}')" title="Sector treemap · same symbols">HEAT MAP</button>
+                        ${curveChip}
                     </div>
                     <div class="tray-msg" id="msg-${pid}"></div>
                 `;
@@ -5601,6 +5973,16 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 `;
             }
 
+            let swpcSection = '';
+            if (panel.type === 'swpc') {
+                swpcSection = `
+                    <div class="tray-row">
+                        <span class="tray-label">WHY</span>
+                        <span class="tray-hint">NOAA SWPC · <strong>no API key</strong>. Kp≥5 (G1) stresses the grid (XLU), GPS logistics, polar aviation, and satellite names. Kp≥7 (G3+) is the tape-moving threshold.</span>
+                    </div>
+                `;
+            }
+
             let flightsSection = '';
             if (panel.type === 'flights') {
                 const currentR = getFlightRadiusNm(panel);
@@ -5665,12 +6047,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     ? `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`
                     : (c.label || `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`);
                 const keyVal = getAisKey();
-                const keyStatus = !keyVal ? 'no key — paste one to go live'
-                    : aisStatus === 'live' ? `connected · live · ${aisMsgCount} frames`
-                    : aisStatus === 'subscribed' ? 'connected · waiting for data…'
-                    : aisStatus === 'nodata' ? 'connected but no data — key likely not active yet'
+                const keyStatus = !keyVal
+                    ? 'optional — Open Waters is already live with no key'
+                    : aisStatus === 'live' ? `aisstream connected · live · ${aisMsgCount} frames`
+                    : aisStatus === 'subscribed' ? 'aisstream connected · waiting…'
+                    : aisStatus === 'nodata' ? 'aisstream quiet — Open Waters may still fill the map'
                     : aisStatus === 'connecting' ? 'connecting…'
-                    : aisStatus === 'error' ? `rejected${aisLastError ? ': ' + aisLastError : ''}`
+                    : aisStatus === 'error' ? `aisstream rejected${aisLastError ? ': ' + aisLastError : ''}`
                     : aisStatus === 'disconnected' ? 'disconnected — retrying'
                     : 'key set';
                 vesselsSection = `
@@ -5687,7 +6070,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     <div class="tray-row">
                         <span class="tray-label">RADIUS</span>
                         ${radiusChips}
-                        <span class="tray-hint">Live AIS via aisstream.io WebSocket · vessels age out after 10 min with no update</span>
+                        <span class="tray-hint">Open Waters (no key, global; AISHub may lag ~5 min) ∪ optional aisstream.io live overlay · vessels age out after 10 min</span>
                     </div>
                     <div class="tray-row">
                         <span class="tray-label">TYPE</span>
@@ -5704,11 +6087,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         <input class="flight-center-input" type="text"
                                id="vessel-key-${pid}"
                                value="${escapeAttr(keyVal)}"
-                               placeholder="paste free aisstream.io API key"
+                               placeholder="optional — faster live overlay"
                                onkeydown="if(event.key==='Enter'){event.preventDefault();setAisStreamKey(this.value);this.blur();}"
                                onblur="setAisStreamKey(this.value)">
                         <button type="button" class="header-btn" onclick="testAisStreamKey()" title="Open a throwaway whole-world subscription for ~8s and report whether the key streams any data. Separates a bad/inactive key from an empty local area.">TEST KEY</button>
-                        <span class="tray-hint">${escapeHTML(keyStatus)} · free key from <a href="https://aisstream.io/" target="_blank" rel="noopener">aisstream.io</a> (signup, no payment). <strong>TEST KEY</strong> checks it against the whole world. Shared by all VESSELS panels, stored locally in your browser.</span>
+                        <span class="tray-hint">${escapeHTML(keyStatus)} · map works with <strong>no key</strong> via <a href="https://openwaters.io/ais/" target="_blank" rel="noopener">Open Waters</a>. Optional faster overlay: free key from <a href="https://aisstream.io/" target="_blank" rel="noopener">aisstream.io</a> (GitHub signup, no payment). <strong>TEST KEY</strong> checks aisstream against the whole world. Stored locally.</span>
                     </div>
                 `;
             }
@@ -5859,6 +6242,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     ${seismicSection}
                     ${stormsSection}
                     ${eonetSection}
+                    ${swpcSection}
                     ${flightsSection}
                     ${vesselsSection}
                     ${calendarSection}
@@ -5877,7 +6261,9 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 case 'forex':
                 case 'commodities':
                 case 'bonds':
-                    return panel.display === 'heatmap' ? renderHeatMap(panel) : renderQuoteTable(panel);
+                    if (panel.display === 'heatmap') return renderHeatMap(panel);
+                    if (panel.display === 'curve') return renderYieldCurve(panel);
+                    return renderQuoteTable(panel);
                 case 'news':       return renderNews(panel);
                 case 'calendar':   return renderCalendar(panel);
                 case 'movers':     return renderMovers();
@@ -5885,6 +6271,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 case 'seismic':    return renderSeismic(panel, pid);
                 case 'storms':     return renderStorms(panel, pid);
                 case 'eonet':      return renderEonet(panel, pid);
+                case 'swpc':       return renderSwpc(panel);
                 case 'flights':    return renderFlights(panel, pid);
                 case 'vessels':    return renderVessels(panel, pid);
                 case 'externalAccount': return panel.display === 'heatmap'
@@ -5994,6 +6381,65 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 </div>`;
             }).join('');
             return rows;
+        }
+
+        // TREASURIES DISPLAY → CURVE. Uses the panel's Yahoo yields (^IRX/5Y/10Y/30Y).
+        // Inversion (10Y below 13W) is the recession / duration-risk graphic.
+        const TREASURY_CURVE_TENORS = {
+            '^IRX': { years: 0.25, label: '13W' },
+            '^FVX': { years: 5, label: '5Y' },
+            '^TNX': { years: 10, label: '10Y' },
+            '^TYX': { years: 30, label: '30Y' },
+        };
+
+        function renderYieldCurve(panel) {
+            const pts = [];
+            for (const sym of (panel.symbols || [])) {
+                const ten = TREASURY_CURVE_TENORS[sym];
+                if (!ten) continue;
+                const q = quoteCache[sym];
+                const y = q && Number.isFinite(q.regularPrice ?? q.price) ? (q.regularPrice ?? q.price) : null;
+                if (y == null) continue;
+                pts.push({ sym, years: ten.years, label: ten.label, y, chg: q.changePercent });
+            }
+            pts.sort((a, b) => a.years - b.years);
+            if (pts.length < 2) {
+                return `<div class="no-data">Need at least two of ^IRX ^FVX ^TNX ^TYX with quotes for the curve. Add them in the tray or wait for refresh.</div>`;
+            }
+            const short = pts.find(p => p.sym === '^IRX') || pts[0];
+            const tenY = pts.find(p => p.sym === '^TNX') || pts[pts.length - 1];
+            const spread = tenY.y - short.y;
+            const inverted = spread < 0;
+            const W = 560, H = 180, padL = 36, padR = 12, padT = 12, padB = 28;
+            const ys = pts.map(p => p.y);
+            let yMin = Math.min(...ys) - 0.15, yMax = Math.max(...ys) + 0.15;
+            if (yMax - yMin < 0.4) { yMin -= 0.2; yMax += 0.2; }
+            const x0 = pts[0].years, x1 = pts[pts.length - 1].years;
+            const xScale = (yr) => padL + (yr - x0) / (x1 - x0) * (W - padL - padR);
+            const yScale = (v) => padT + (1 - (v - yMin) / (yMax - yMin)) * (H - padT - padB);
+            const poly = pts.map(p => `${xScale(p.years).toFixed(1)},${yScale(p.y).toFixed(1)}`).join(' ');
+            const dots = pts.map(p => {
+                const cx = xScale(p.years), cy = yScale(p.y);
+                const fill = (p.chg || 0) >= 0 ? 'var(--color-positive)' : 'var(--color-negative)';
+                return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="4.5" fill="${fill}" stroke="#001800" stroke-width="1" style="cursor:pointer" onclick="openDrilldown('${escapeAttr(p.sym)}')"/>
+                    <text x="${cx.toFixed(1)}" y="${(H - 8).toFixed(1)}" text-anchor="middle" fill="var(--text-dim)" font-size="10">${p.label}</text>
+                    <text x="${cx.toFixed(1)}" y="${(cy - 8).toFixed(1)}" text-anchor="middle" fill="var(--text-secondary)" font-size="9">${p.y.toFixed(2)}%</text>`;
+            }).join('');
+            const spreadStr = `${spread >= 0 ? '+' : ''}${spread.toFixed(2)} pp`;
+            return `
+                <div class="yield-curve-wrap">
+                    <div class="yield-curve-head">
+                        <span>${inverted ? '<span class="yc-inv">INVERTED</span>' : 'UPWARD SLOPE'}</span>
+                        <span class="yc-spread">10Y − 13W ${spreadStr}</span>
+                    </div>
+                    <svg class="yield-curve-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+                        <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H - padB}" stroke="var(--border-color)" />
+                        <line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="var(--border-color)" />
+                        <polyline fill="none" stroke="${inverted ? 'var(--color-negative)' : 'var(--text-accent)'}" stroke-width="2" points="${poly}" />
+                        ${dots}
+                    </svg>
+                    <div class="yield-curve-hint">Click a point for the ticker drilldown · inversion (10Y below the bill) historically precedes slower growth / duration rallies</div>
+                </div>`;
         }
 
         // ============================================================
@@ -9161,22 +9607,18 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
         function vesselAisStatusBanner() {
             const key = getAisKey();
-            if (!key) {
-                return `<div class="flight-empty">No aisstream.io key set. Open this panel's tray → <strong>AIS KEY</strong>, paste a free key from <a href="https://aisstream.io/" target="_blank" rel="noopener">aisstream.io</a> (free signup, no payment). Stored locally in your browser.</div>`;
+            const n = aisVessels.size;
+            if (aisStatus === 'error' && aisLastError && key) {
+                return `<div class="error-message">AISSTREAM REJECTED: ${escapeHTML(aisLastError)} — Open Waters (no key) still runs. Check the key on aisstream.io if you want the live overlay.</div>`;
             }
-            if (aisStatus === 'error' && aisLastError) {
-                return `<div class="error-message">AIS STREAM REJECTED: ${escapeHTML(aisLastError)} — check that the key is valid &amp; active on aisstream.io.</div>`;
+            if (aisStatus === 'connecting' && n === 0) return `<div class="loading">CONNECTING TO AIS (Open Waters, no key)…</div>`;
+            if (aisStatus === 'subscribed' && n === 0) return `<div class="loading">AIS SUBSCRIBED — waiting for ships in this box (Open Waters snapshot can take a few seconds)…</div>`;
+            if (aisStatus === 'nodata' && n === 0) {
+                return `<div class="error-message">No AIS in this box right now. Open Waters is global but volunteer / AISHub coverage is patchy on open water — try Hormuz, Singapore, Dover, or a larger radius. Optional <strong>AIS KEY</strong> from aisstream.io can add a faster live overlay.</div>`;
             }
-            if (aisStatus === 'connecting') return `<div class="loading">CONNECTING TO AIS STREAM…</div>`;
-            if (aisStatus === 'subscribed') return `<div class="loading">CONNECTED — waiting for AIS data in this area…</div>`;
-            if (aisStatus === 'nodata') {
-                if (aisKeyVerified) {
-                    // Key proven good elsewhere (TEST KEY or an earlier stream) — so this is local coverage.
-                    return `<div class="error-message">CONNECTED &amp; key verified, but <strong>no AIS coverage for this area</strong> right now. aisstream relies on volunteer receivers, so open water / quiet coasts can be empty — try a busier area (Dover Strait, Singapore Strait, English Channel) or a larger radius.</div>`;
-                }
-                return `<div class="error-message">CONNECTED, but aisstream sent <strong>no data</strong>. The socket and subscription are fine — this almost always means the <strong>API key isn't active yet</strong>. Use <strong>TEST KEY</strong> in the tray to check it against the whole world, or sign in at <a href="https://aisstream.io/" target="_blank" rel="noopener">aisstream.io</a> and confirm your email / account, then re-paste the key.</div>`;
+            if ((aisStatus === 'disconnected' || aisStatus === 'error') && n === 0) {
+                return `<div class="error-message">AIS DISCONNECTED — reconnecting Open Waters…</div>`;
             }
-            if (aisStatus === 'disconnected' || aisStatus === 'error') return `<div class="error-message">AIS STREAM DISCONNECTED — reconnecting… (check the key if this persists).</div>`;
             return null;
         }
 
@@ -9539,7 +9981,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             if (PANEL_TYPES[oldType].usesSymbols && Array.isArray(panel.symbols)) {
                 const mem = { symbols: [...panel.symbols] };
                 if (panel.sort && panel.sort.key) mem.sort = { ...panel.sort };
-                if (panel.display === 'heatmap') mem.display = 'heatmap';
+                if (panel.display === 'heatmap' || panel.display === 'curve') mem.display = panel.display;
                 panel.memory[oldType] = mem;
             } else if (oldType === 'news' && panel.topic) {
                 panel.memory.news = { topic: panel.topic };
@@ -9628,8 +10070,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 } else {
                     panel.sort = { key: null, dir: null };
                 }
-                if (m && m.display === 'heatmap') {
-                    panel.display = 'heatmap';
+                if (m && (m.display === 'heatmap' || (newType === 'bonds' && m.display === 'curve'))) {
+                    panel.display = m.display;
                 } else {
                     delete panel.display;
                 }
@@ -10049,7 +10491,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             const key = getAisKey();
             if (!key) { updateStatus('VESSELS · paste a key first', 'error'); return; }
             updateStatus('VESSELS · testing key against whole world…', 'normal');
-            teardownAisConnection();
+            aisKeyTestInProgress = true;
+            teardownAisstreamConnection();
             aisStatus = 'connecting';
             let ws, done = false, raw = 0, vessels = 0, errText = '';
             const finish = (verdict, ok) => {
@@ -10058,6 +10501,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 clearTimeout(timer);
                 try { ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null; ws.close(); } catch (_e) {}
                 aisKeyVerified = ok && raw > 0;
+                aisKeyTestInProgress = false;
                 updateStatus(verdict, ok ? 'normal' : 'error');
                 console.info('[VESSELS] key test result:', verdict, { raw, vessels, errText });
                 ensureAisConnection();   // restore the normal panel stream
@@ -10340,6 +10784,16 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 document.getElementById(`panel-${pid}`)?.classList.add('tray-open');
                 void refreshAll();
             }
+        }
+
+        // TREASURIES DISPLAY → CURVE (toggle). Same Yahoo yields as the table.
+        function togglePanelCurveDisplay(pid) {
+            const panel = state.panels[pid];
+            if (!panel || panel.type !== 'bonds') return;
+            if (panel.display === 'curve') delete panel.display;
+            else panel.display = 'curve';
+            saveState();
+            renderAllPanels();
         }
 
         // DISPLAY → GLOBE for any panel type with supportsGeoDisplay (lat/lon feeds).
