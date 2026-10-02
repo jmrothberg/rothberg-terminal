@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.8.6</title>
+    <title>ROTHBERG TERMINAL v1.8.7</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys except an optional aisstream.io key for faster AIS.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1254,7 +1254,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.8.6</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.8.7</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1443,7 +1443,15 @@ When ON and the market is in pre-market or after-hours:
 When ON during regular hours (or when no extended data is
 available), rows show a dim REG badge but display normal
 regular-session values. Toggle OFF to hide badges and the
-extended data entirely.</pre>
+extended data entirely.
+
+EXTERNAL ACCOUNT has the same EXT HRS chip. OFF prices the
+book at the regular close. ON uses the pre-market or
+after-hours price in value and P/L.
+
+Clicking a name opens the chart for the live session either
+way: BEFORE (before pre-market), PRE, MKT, CLOSE, or AH.
+The 1D graph shades those sessions and marks the cash close.</pre>
                 </div>
 
                 <div class="help-section">
@@ -1729,7 +1737,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             swpc:        { label: 'SPACE WEATHER',       usesSymbols: false, usesNews: false },
             flights:     { label: 'FLIGHTS',             usesSymbols: false, usesNews: false, supportsFlightMap: true },
             vessels:     { label: 'VESSELS (AIS)',       usesSymbols: false, usesNews: false, supportsFlightMap: true },
-            externalAccount: { label: 'EXTERNAL ACCOUNT', usesSymbols: false, usesNews: false },
+            externalAccount: { label: 'EXTERNAL ACCOUNT', usesSymbols: false, usesNews: false, supportsExtendedHours: true },
         };
 
         const PANEL_TYPE_ORDER = ['stocks','indices','crypto','forex','commodities','bonds','news','prediction','calendar','movers','seismic','storms','eonet','swpc','flights','vessels','externalAccount'];
@@ -6445,7 +6453,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
 
             let extHoursSection = '';
-            if (typeMeta?.supportsExtendedHours) {
+            // EXTERNAL ACCOUNT draws its own EXT HRS chip inside that tray (same switch, used in the math).
+            if (typeMeta?.supportsExtendedHours && panel.type !== 'externalAccount') {
                 const on = !!panel.extendedHours;
                 extHoursSection = `
                     <div class="tray-row">
@@ -6558,6 +6567,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         <button type="button" class="chip${plAct}" onclick="toggleExternalPlDisplayMode('${escapeAttr(pid)}')" title="${escapeAttr(tip)}">${label}</button>
                         <span class="tray-hint">Table only · click chip to switch last two columns.</span>`;
                         })()}
+                    </div>
+                    <div class="tray-row">
+                        <span class="tray-label">EXT HRS</span>
+                        <button type="button" class="chip${panel.extendedHours ? ' active' : ''}" onclick="toggleExtendedHours('${escapeAttr(pid)}')">${panel.extendedHours ? 'ON' : 'OFF'}</button>
+                        <span class="tray-hint">OFF = regular close in price, value, and P/L. ON = pre-market or after-hours price in those calculations. The chart you open from a name always follows the real session.</span>
                     </div>` : ''}
                 `;
             }
@@ -7430,16 +7444,34 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 headChange = q.change;
                 headPct = q.changePercent;
             }
-            let headlineIsRthClose = ms !== 'REGULAR';
-            if (on1dTickerDd && ms === 'REGULAR' && Array.isArray(q.closes) && q.closes.length >= 2 && Number.isFinite(q.previousClose)) {
-                const last = q.closes[q.closes.length - 1];
-                if (Number.isFinite(last)) {
-                    headPrice = last;
-                    headChange = last - q.previousClose;
-                    headPct = q.previousClose ? (headChange / q.previousClose) * 100 : 0;
-                    headlineIsRthClose = false;
+            // Chart headline follows the clock, not the watchlist / external EXT HRS switch.
+            // PRE = pre-market, MKT = regular session, CLOSE = cash close, AH = after-hours, BEFORE = before pre-market.
+            let sessionTag = 'CLOSE';
+            if (ms === 'PRE' && q.preMarketPrice != null) {
+                headPrice = q.preMarketPrice;
+                headChange = q.preMarketChange;
+                headPct = q.preMarketChangePercent;
+                sessionTag = 'PRE';
+            } else if ((ms === 'POST' || ms === 'POSTPOST') && q.postMarketPrice != null) {
+                headPrice = q.postMarketPrice;
+                headChange = q.postMarketChange;
+                headPct = q.postMarketChangePercent;
+                sessionTag = 'AH';
+            } else if (ms === 'PREPRE') {
+                sessionTag = 'BEFORE';
+            } else if (ms === 'REGULAR') {
+                sessionTag = 'MKT';
+                if (on1dTickerDd && Array.isArray(q.closes) && q.closes.length >= 2 && Number.isFinite(q.previousClose)) {
+                    const last = q.closes[q.closes.length - 1];
+                    if (Number.isFinite(last)) {
+                        headPrice = last;
+                        headChange = last - q.previousClose;
+                        headPct = q.previousClose ? (headChange / q.previousClose) * 100 : 0;
+                    }
                 }
             }
+            if (!Number.isFinite(headChange)) headChange = 0;
+            if (!Number.isFinite(headPct)) headPct = 0;
             const cls = headChange > 0 ? 'positive' : headChange < 0 ? 'negative' : 'neutral';
             const sign = headChange >= 0 ? '+' : '';
             const pctSign = headPct >= 0 ? '+' : '';
@@ -7478,11 +7510,14 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 `;
             };
             const extHTML =
-                buildExtRow('PRE', q.preMarketPrice, q.preMarketChange, q.preMarketChangePercent, q.preMarketVolume, q.preMarketTime) +
-                buildExtRow('AH',  q.postMarketPrice, q.postMarketChange, q.postMarketChangePercent, q.postMarketVolume, q.postMarketTime);
+                (sessionTag === 'PRE' ? '' : buildExtRow('PRE', q.preMarketPrice, q.preMarketChange, q.preMarketChangePercent, q.preMarketVolume, q.preMarketTime)) +
+                (sessionTag === 'AH' ? '' : buildExtRow('AH',  q.postMarketPrice, q.postMarketChange, q.postMarketChangePercent, q.postMarketVolume, q.postMarketTime)) +
+                ((sessionTag === 'PRE' || sessionTag === 'AH' || sessionTag === 'BEFORE') && q.regularPrice != null
+                    ? buildExtRow('CLOSE', q.regularPrice, q.regularChange, q.regularChangePercent, q.volume, null)
+                    : '');
 
-            const regCloseTag = headlineIsRthClose
-                ? '<span class="dd-session-tag reg" title="Regular (RTH) session close vs prior close">REG</span>'
+            const regCloseTag = sessionTag
+                ? `<span class="dd-session-tag ${sessionTag === 'PRE' || sessionTag === 'AH' ? 'ext' : 'reg'}" title="This chart follows the live session, not the panel EXT HRS switch">${sessionTag}</span>`
                 : '';
             const regVolStr = (pf !== 'yield' && pf !== 'forex') ? formatVolume(q.volume) : null;
             const regVolHTML = regVolStr ? `<span class="dd-ext-vol">VOL ${regVolStr}</span>` : '';
@@ -7664,13 +7699,22 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
             let xLabels = '';
             if (ts.length >= 2) {
-                const fmtDate = t => t ? new Date(t * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+                const fmtAxis = t => {
+                    if (!t) return '';
+                    const d = new Date(t * 1000);
+                    if (sessionWindows) {
+                        return d.toLocaleTimeString('en-US', {
+                            hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/New_York',
+                        });
+                    }
+                    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                };
                 const xs = [
                     { x: padL,               t: ts[0] },
                     { x: padL + innerW / 2,  t: ts[Math.floor(ts.length / 2)] },
                     { x: padL + innerW,      t: ts[ts.length - 1] },
                 ];
-                xLabels = xs.map(l => `<text x="${l.x}" y="${height - 6}" text-anchor="middle" fill="var(--text-dim)" font-size="9" font-family="IBM Plex Mono, monospace">${fmtDate(l.t)}</text>`).join('');
+                xLabels = xs.map(l => `<text x="${l.x}" y="${height - 6}" text-anchor="middle" fill="var(--text-dim)" font-size="9" font-family="IBM Plex Mono, monospace">${fmtAxis(l.t)}</text>`).join('');
             }
             let prevLine = '';
             if (previousClose != null && previousClose >= min && previousClose <= max) {
@@ -7683,6 +7727,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             // the actual clock time printed under each divider so a reader
             // can verify the lines land where the bar data says they should.
             let sessionLines = '';
+            let sessionShade = '';
             if (sessionWindows && sessionWindows.regular && ts.length >= 2) {
                 const tStart = ts[0];
                 const tEnd = ts[ts.length - 1];
@@ -7690,22 +7735,39 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const xFor = (t) => padL + ((t - tStart) / tSpan) * innerW;
                 const openT  = sessionWindows.regular.start;
                 const closeT = sessionWindows.regular.end;
-                const fmtClock = (t) => new Date(t * 1000).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+                const fmtClock = (t) => new Date(t * 1000).toLocaleTimeString('en-US', {
+                    hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/New_York',
+                });
                 const clockY = volPaneOn ? (padT + priceInnerH + 10) : (padT + priceInnerH + 12);
-                const drawDivider = (t) => {
+                const shade = (l, r, fill) => {
+                    const x1 = xFor(Math.max(l, tStart));
+                    const x2 = xFor(Math.min(r, tEnd));
+                    if (!(x2 > x1)) return '';
+                    return `<rect x="${x1.toFixed(1)}" y="${padT}" width="${(x2 - x1).toFixed(1)}" height="${priceInnerH}" fill="${fill}"/>`;
+                };
+                if (sessionWindows.pre && tStart < openT) sessionShade += shade(sessionWindows.pre.start, openT, 'rgba(255,179,0,0.10)');
+                sessionShade += shade(openT, closeT, 'rgba(0,255,65,0.05)');
+                if (sessionWindows.post && closeT < tEnd) sessionShade += shade(closeT, sessionWindows.post.end, 'rgba(255,179,0,0.10)');
+                const drawDivider = (t, name) => {
                     if (t <= tStart || t >= tEnd) return '';
                     const x = xFor(t).toFixed(1);
+                    const nameHTML = name
+                        ? `<text x="${x}" y="${padT + 22}" text-anchor="middle" fill="#ffb300" font-size="9" font-family="IBM Plex Mono, monospace">${name}</text>`
+                        : '';
                     return `<line x1="${x}" y1="${padT}" x2="${x}" y2="${padT + priceInnerH}" stroke="var(--text-dim)" stroke-dasharray="2,3" stroke-width="0.8"/>
-                        <text x="${x}" y="${clockY}" text-anchor="middle" fill="var(--text-dim)" font-size="9" font-family="IBM Plex Mono, monospace">${fmtClock(t)}</text>`;
+                        <text x="${x}" y="${clockY}" text-anchor="middle" fill="var(--text-dim)" font-size="9" font-family="IBM Plex Mono, monospace">${fmtClock(t)}</text>
+                        ${nameHTML}`;
                 };
-                sessionLines += drawDivider(openT);
-                sessionLines += drawDivider(closeT);
+                sessionLines += drawDivider(openT, '');
+                sessionLines += drawDivider(closeT, 'CLOSE');
                 // Session labels centered in each visible band.
                 const bands = [];
                 if (sessionWindows.pre && tStart < openT) {
                     bands.push({ label: 'PRE', l: Math.max(tStart, sessionWindows.pre.start), r: Math.min(tEnd, openT) });
+                } else if (tStart < openT) {
+                    bands.push({ label: 'BEFORE', l: tStart, r: Math.min(tEnd, openT) });
                 }
-                bands.push({ label: 'REG', l: Math.max(tStart, openT), r: Math.min(tEnd, closeT) });
+                bands.push({ label: 'MKT', l: Math.max(tStart, openT), r: Math.min(tEnd, closeT) });
                 if (sessionWindows.post && closeT < tEnd) {
                     bands.push({ label: 'AH', l: Math.max(tStart, closeT), r: Math.min(tEnd, sessionWindows.post.end) });
                 }
@@ -7734,6 +7796,40 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     priceGeom += `<line x1="${x.toFixed(1)}" y1="${yHi.toFixed(1)}" x2="${x.toFixed(1)}" y2="${yLo.toFixed(1)}" stroke="var(--text-dim)" stroke-width="0.9" vector-effect="non-scaling-stroke"/>`;
                     priceGeom += `<rect x="${(x - bw / 2).toFixed(1)}" y="${bodyTop.toFixed(1)}" width="${bw.toFixed(1)}" height="${bodyH.toFixed(1)}" fill="${fill}" stroke="var(--border-color)" stroke-width="0.4" vector-effect="non-scaling-stroke"/>`;
                 }
+            } else if (sessionWindows && sessionWindows.regular && ts.length === pts.length) {
+                const openT = sessionWindows.regular.start;
+                const closeT = sessionWindows.regular.end;
+                const preW = sessionWindows.pre;
+                const postW = sessionWindows.post;
+                const kindAt = (t) => {
+                    if (preW && t >= preW.start && t < openT) return 'pre';
+                    if (t >= closeT && (!postW || t < postW.end)) return 'ah';
+                    if (t >= openT && t < closeT) return 'reg';
+                    if (t < openT) return 'before';
+                    return 'ah';
+                };
+                const strokeFor = (k) => (k === 'reg' ? stroke : '#ffb300');
+                let run = [];
+                let runKind = null;
+                const flush = () => {
+                    if (run.length < 2) { run = []; return; }
+                    priceGeom += `<polyline points="${run.join(' ')}" fill="none" stroke="${strokeFor(runKind)}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
+                    run = [];
+                };
+                for (let i = 0; i < pts.length; i++) {
+                    const k = kindAt(ts[i]);
+                    const xy = `${(padL + i * stepX).toFixed(1)},${yPrice(pts[i]).toFixed(1)}`;
+                    if (runKind && k !== runKind) {
+                        run.push(xy);
+                        flush();
+                        run.push(xy);
+                        runKind = k;
+                    } else {
+                        run.push(xy);
+                        runKind = k;
+                    }
+                }
+                flush();
             } else {
                 const coords = pts.map((v, i) => {
                     const x = (padL + i * stepX).toFixed(1);
@@ -7763,6 +7859,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             return `
                 <svg class="dd-chart" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" preserveAspectRatio="none">
                     ${yGrid.join('')}
+                    ${sessionShade}
                     ${sessionLines}
                     ${prevLine}
                     ${priceGeom}
@@ -7953,6 +8050,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             if (prevMvUsd != null && Number.isFinite(prevMvUsd)) sums.sumDayPrevMv += prevMvUsd;
         }
 
+        /** EXTERNAL ACCOUNT: same EXT HRS switch as the watchlist. ON uses pre/after-hours in value and P/L. */
+        function externalQuoteViewOpts(panel) {
+            return { extendedHours: !!(panel && panel.extendedHours) };
+        }
+
         /** EXTERNAL ACCOUNT table: last columns = cost-basis P/L vs prior-close day P/L (explicit total|daily in memory). */
         function getExternalPlDisplayMode(panel) {
             return (panel?.memory?.externalAccount?.plDisplayMode === 'daily') ? 'daily' : 'total';
@@ -7977,7 +8079,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
 
         /**
          * Day $ / day % / prior MV (USD) for one holdings row vs prior regular close.
-         * `valueUsd` = current VALUE column (USD); must match resolveQuoteView(ext:false) price path.
+         * `valueUsd` = current VALUE column (USD); must match resolveQuoteView for this panel (close, or EXT HRS when that switch is on).
          */
         function externalRowDailyPlFromDetail(panel, r, valueUsd) {
             const csvStatic = externalRowUsesCsvMarketValue(panel, r);
@@ -7995,7 +8097,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             if (!qk || !q) return { dayD: null, dayPct: null, prevMvUsd: null };
             const pxPrev = q.previousClose != null && Number.isFinite(q.previousClose) ? q.previousClose : null;
             if (pxPrev == null) return { dayD: null, dayPct: null, prevMvUsd: null };
-            const v = resolveQuoteView(q, { extendedHours: false });
+            const v = resolveQuoteView(q, externalQuoteViewOpts(panel));
             const pxNow = v && Number.isFinite(v.price) ? v.price : null;
             const qty = r.quantity != null && Number.isFinite(Number(r.quantity)) ? Number(r.quantity) : null;
             if (qty == null || pxNow == null) return { dayD: null, dayPct: null, prevMvUsd: null };
@@ -8023,7 +8125,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 } else {
                     const qkr = getExternalRowQuoteKey(panel, r);
                     const qr = qkr ? quoteCache[qkr] : null;
-                    const vr = qr ? resolveQuoteView(qr, { extendedHours: false }) : null;
+                    const vr = qr ? resolveQuoteView(qr, externalQuoteViewOpts(panel)) : null;
                     const pr = vr && Number.isFinite(vr.price) ? vr.price : null;
                     if (pr != null && qty) {
                         const usd = externalRowValueUsdFromQuote(panel, r, qkr, pr, qty);
@@ -8092,7 +8194,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     } else {
                         const qk = getExternalRowQuoteKey(panel, r);
                         const q = qk ? quoteCache[qk] : null;
-                        const v = q ? resolveQuoteView(q, { extendedHours: false }) : null;
+                        const v = q ? resolveQuoteView(q, externalQuoteViewOpts(panel)) : null;
                         const price = v && Number.isFinite(v.price) ? v.price : null;
                         if (price != null && qty) {
                             const usd = externalRowValueUsdFromQuote(panel, r, qk, price, qty);
@@ -8152,7 +8254,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     }
                 }
                 const q = quoteKey ? quoteCache[quoteKey] : null;
-                const chPct = q && Number.isFinite(q.changePercent) ? q.changePercent : null;
+                const qv = q ? resolveQuoteView(q, externalQuoteViewOpts(panel)) : null;
+                const chPct = qv && Number.isFinite(qv.changePercent) ? qv.changePercent : null;
                 groups.push({
                     mergeKey: g.mergeKey,
                     rows: g.rows,
@@ -8314,7 +8417,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     const csvKey0 = externalOverrideKeyFromRow(r0);
                     const qk = g.quoteKey;
                     const q = qk ? quoteCache[qk] : null;
-                    const v = q ? resolveQuoteView(q, { extendedHours: false }) : null;
+                    const v = q ? resolveQuoteView(q, externalQuoteViewOpts(panel)) : null;
                     const priceOne = v && Number.isFinite(v.price) ? v.price : null;
                     const qtyAgg = g.quantity;
                     const value = Number.isFinite(g.aggValue) ? g.aggValue : null;
@@ -8441,7 +8544,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 const csvVal = csvStatic ? externalCsvMarketValueDollars(r) : null;
                 const qk = getExternalRowQuoteKey(panel, r);
                 const q = qk ? quoteCache[qk] : null;
-                const v = q ? resolveQuoteView(q, { extendedHours: false }) : null;
+                const v = q ? resolveQuoteView(q, externalQuoteViewOpts(panel)) : null;
                 const priceYahoo = v && Number.isFinite(v.price) ? v.price : null;
                 const qty = r.quantity;
                 let price = null;
