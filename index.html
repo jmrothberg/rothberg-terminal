@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.8.5</title>
+    <title>ROTHBERG TERMINAL v1.8.6</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys except an optional aisstream.io key for faster AIS.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1254,7 +1254,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.8.5</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.8.6</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -4311,19 +4311,22 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
             const last = closes.length ? closes[closes.length - 1] : NaN;
             const prev = Number(r.chartPreviousClose ?? r.previousClose);
-            // The 5m series stops at the 16:00 cash close. fulldayPrice is the quote Yahoo
-            // keeps updating after that (after-hours last). Pinning the row to the 16:00 bar
-            // froze the watchlist and external accounts on the close.
+            // After the bell the 5m series stops on the 16:00 cash close. fulldayPrice
+            // keeps moving (after-hours). Watchlists and external accounts show the close.
+            // fulldayPrice is stored only as the AH print for the EXT HRS toggle.
             const seriesEndedAtCashClose = timestamps.length === closes.length
                 && sparkLastBarIsUsCashClose(timestamps)
                 && Number.isFinite(last);
             const full = Number(r.fulldayPrice);
-            const price = Number.isFinite(full) ? full : last;
+            const price = seriesEndedAtCashClose ? last : (Number.isFinite(full) ? full : last);
             if (!Number.isFinite(price) || !Number.isFinite(prev)) return null;
-            // Derive the move from the price we actually show. fulldayChange sometimes
-            // stays on the regular-session close while fulldayPrice has already moved.
             const change = price - prev;
             const changePercent = prev ? (change / prev) * 100 : 0;
+            const ahMoved = seriesEndedAtCashClose && Number.isFinite(full)
+                && Math.abs(full - last) > Math.max(0.0001, Math.abs(last) * 1e-5);
+            const postMarketPrice = ahMoved ? full : null;
+            const postMarketChange = ahMoved ? (full - last) : null;
+            const postMarketChangePercent = ahMoved && last ? ((full - last) / last) * 100 : null;
             return {
                 price,
                 change,
@@ -4344,13 +4347,13 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 preMarketChange: null,
                 preMarketChangePercent: null,
                 preMarketVolume: null,
-                postMarketPrice: null,
-                postMarketChange: null,
-                postMarketChangePercent: null,
+                postMarketPrice,
+                postMarketChange,
+                postMarketChangePercent,
                 postMarketVolume: null,
                 preMarketTime: null,
                 postMarketTime: null,
-                // Regular-session bars are done. Do not paste an older cached AH print over fulldayPrice.
+                // Cash close is in. Do not paste an older cached AH print over this fetch.
                 sessionClosed: seriesEndedAtCashClose,
                 closes,
                 timestamps,
@@ -4395,15 +4398,12 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 if (q.yearLow == null && prev.yearLow != null) q.yearLow = prev.yearLow;
                 if (q.dayHigh == null && prev.dayHigh != null) q.dayHigh = prev.dayHigh;
                 if (q.dayLow == null && prev.dayLow != null) q.dayLow = prev.dayLow;
-                // Spark never sends a separate AH print. Copying the cached one back
-                // covered the new fulldayPrice, so refresh looked like it kept old numbers.
+                // After the close, keep this fetch's cash close. Do not copy an older
+                // cached AH print onto the row. EXT HRS still reads postMarketPrice from this fetch.
                 if (q.sessionClosed) {
                     q.preMarketPrice = null;
                     q.preMarketChange = null;
                     q.preMarketChangePercent = null;
-                    q.postMarketPrice = null;
-                    q.postMarketChange = null;
-                    q.postMarketChangePercent = null;
                     q.marketState = usCashStateAfterClose();
                 } else {
                     if (q.marketState == null && prev.marketState) q.marketState = prev.marketState;
