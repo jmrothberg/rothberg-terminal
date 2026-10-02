@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.8.3</title>
+    <title>ROTHBERG TERMINAL v1.8.4</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys except an optional aisstream.io key for faster AIS.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1254,7 +1254,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.8.3</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.8.4</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -4260,6 +4260,42 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
         }
 
+        /**
+         * Yahoo spark `fulldayPrice` lags the cash close (AAPL 333.27 vs close 333.69).
+         * The 5m bar stamped 16:00 America/New_York matches chart regularMarketPrice.
+         * A later stamp means the instrument is still printing (futures) — keep fulldayPrice.
+         */
+        function sparkLastBarIsUsCashClose(timestamps) {
+            if (!Array.isArray(timestamps) || !timestamps.length) return false;
+            const lastTs = Number(timestamps[timestamps.length - 1]);
+            if (!Number.isFinite(lastTs)) return false;
+            const parts = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/New_York',
+                hour: '2-digit',
+                minute: '2-digit',
+                hourCycle: 'h23',
+            }).formatToParts(new Date(lastTs * 1000));
+            const hh = Number(parts.find((p) => p.type === 'hour')?.value);
+            const mm = Number(parts.find((p) => p.type === 'minute')?.value);
+            return hh === 16 && mm === 0;
+        }
+
+        /** Header label once the 16:00 bar is the price. POST and POSTPOST both read AFTER-HOURS. */
+        function usCashStateAfterClose() {
+            const parts = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/New_York',
+                weekday: 'short',
+                hour: '2-digit',
+                minute: '2-digit',
+                hourCycle: 'h23',
+            }).formatToParts(new Date());
+            const wd = parts.find((p) => p.type === 'weekday')?.value;
+            if (wd === 'Sat' || wd === 'Sun') return 'CLOSED';
+            const hh = Number(parts.find((p) => p.type === 'hour')?.value);
+            const mm = Number(parts.find((p) => p.type === 'minute')?.value);
+            return (hh * 60 + mm) >= 20 * 60 ? 'POSTPOST' : 'POST';
+        }
+
         /** Yahoo v8 spark (works; v7 quote is 401). One call: prices + 5m sparkline for many tickers. */
         function sparkRowToQuote(r) {
             if (!r || typeof r !== 'object') return null;
@@ -4275,20 +4311,30 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 if (tsRaw[i] != null) timestamps.push(tsRaw[i]);
             }
             const last = closes.length ? closes[closes.length - 1] : NaN;
-            const price = Number.isFinite(Number(r.fulldayPrice)) ? Number(r.fulldayPrice) : last;
             const prev = Number(r.chartPreviousClose ?? r.previousClose);
+            // After the bell, fulldayPrice / fulldayChange stay on an earlier print.
+            // The 16:00 ET bar is the official close — that is the number watchlist and holdings should show.
+            const cashClose = timestamps.length === closes.length
+                && sparkLastBarIsUsCashClose(timestamps)
+                && Number.isFinite(last);
+            const full = Number(r.fulldayPrice);
+            const price = cashClose ? last : (Number.isFinite(full) ? full : last);
             if (!Number.isFinite(price) || !Number.isFinite(prev)) return null;
-            const change = Number.isFinite(Number(r.fulldayChange)) ? Number(r.fulldayChange) : (price - prev);
-            const changePercent = Number.isFinite(Number(r.fulldayChangePercent))
-                ? Number(r.fulldayChangePercent)
-                : (prev ? (change / prev) * 100 : 0);
+            const change = cashClose
+                ? (price - prev)
+                : (Number.isFinite(Number(r.fulldayChange)) ? Number(r.fulldayChange) : (price - prev));
+            const changePercent = cashClose
+                ? (prev ? (change / prev) * 100 : 0)
+                : (Number.isFinite(Number(r.fulldayChangePercent))
+                    ? Number(r.fulldayChangePercent)
+                    : (prev ? (change / prev) * 100 : 0));
             return {
                 price,
                 change,
                 changePercent,
                 previousClose: prev,
                 shortName: r.symbol || null,
-                marketState: r.marketState || null,
+                marketState: cashClose ? usCashStateAfterClose() : (r.marketState || null),
                 currency: r.currency || null,
                 volume: Number.isFinite(Number(r.volume)) ? Number(r.volume) : null,
                 dayHigh: null,
@@ -4308,6 +4354,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 postMarketVolume: null,
                 preMarketTime: null,
                 postMarketTime: null,
+                // Set when price is the 16:00 cash close so merge does not paste an older AH print back on.
+                sessionClosed: cashClose,
                 closes,
                 timestamps,
             };
@@ -4351,16 +4399,28 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 if (q.yearLow == null && prev.yearLow != null) q.yearLow = prev.yearLow;
                 if (q.dayHigh == null && prev.dayHigh != null) q.dayHigh = prev.dayHigh;
                 if (q.dayLow == null && prev.dayLow != null) q.dayLow = prev.dayLow;
-                if (q.marketState == null && prev.marketState) q.marketState = prev.marketState;
-                if (q.preMarketPrice == null && prev.preMarketPrice != null) {
-                    q.preMarketPrice = prev.preMarketPrice;
-                    q.preMarketChange = prev.preMarketChange;
-                    q.preMarketChangePercent = prev.preMarketChangePercent;
-                }
-                if (q.postMarketPrice == null && prev.postMarketPrice != null) {
-                    q.postMarketPrice = prev.postMarketPrice;
-                    q.postMarketChange = prev.postMarketChange;
-                    q.postMarketChangePercent = prev.postMarketChangePercent;
+                // Spark never sends PRE/AH. Copying the cached print back is why refresh
+                // kept old numbers after the close instead of the 16:00 price.
+                if (q.sessionClosed) {
+                    q.preMarketPrice = null;
+                    q.preMarketChange = null;
+                    q.preMarketChangePercent = null;
+                    q.postMarketPrice = null;
+                    q.postMarketChange = null;
+                    q.postMarketChangePercent = null;
+                    q.marketState = usCashStateAfterClose();
+                } else {
+                    if (q.marketState == null && prev.marketState) q.marketState = prev.marketState;
+                    if (q.preMarketPrice == null && prev.preMarketPrice != null) {
+                        q.preMarketPrice = prev.preMarketPrice;
+                        q.preMarketChange = prev.preMarketChange;
+                        q.preMarketChangePercent = prev.preMarketChangePercent;
+                    }
+                    if (q.postMarketPrice == null && prev.postMarketPrice != null) {
+                        q.postMarketPrice = prev.postMarketPrice;
+                        q.postMarketChange = prev.postMarketChange;
+                        q.postMarketChangePercent = prev.postMarketChangePercent;
+                    }
                 }
                 if ((!q.preMarketVolume || q.preMarketVolume <= 0) && prev.preMarketVolume > 0) q.preMarketVolume = prev.preMarketVolume;
                 if ((!q.postMarketVolume || q.postMarketVolume <= 0) && prev.postMarketVolume > 0) q.postMarketVolume = prev.postMarketVolume;
