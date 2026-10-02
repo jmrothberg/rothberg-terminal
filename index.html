@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.8.4</title>
+    <title>ROTHBERG TERMINAL v1.8.5</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys except an optional aisstream.io key for faster AIS.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1254,7 +1254,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.8.4</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.8.5</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -4261,9 +4261,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         }
 
         /**
-         * Yahoo spark `fulldayPrice` lags the cash close (AAPL 333.27 vs close 333.69).
-         * The 5m bar stamped 16:00 America/New_York matches chart regularMarketPrice.
-         * A later stamp means the instrument is still printing (futures) — keep fulldayPrice.
+         * True when the 5m series has reached the US cash close (bar stamped 16:00 ET).
+         * That series stops there. A later stamp means the instrument is still printing (futures).
          */
         function sparkLastBarIsUsCashClose(timestamps) {
             if (!Array.isArray(timestamps) || !timestamps.length) return false;
@@ -4312,29 +4311,26 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             }
             const last = closes.length ? closes[closes.length - 1] : NaN;
             const prev = Number(r.chartPreviousClose ?? r.previousClose);
-            // After the bell, fulldayPrice / fulldayChange stay on an earlier print.
-            // The 16:00 ET bar is the official close — that is the number watchlist and holdings should show.
-            const cashClose = timestamps.length === closes.length
+            // The 5m series stops at the 16:00 cash close. fulldayPrice is the quote Yahoo
+            // keeps updating after that (after-hours last). Pinning the row to the 16:00 bar
+            // froze the watchlist and external accounts on the close.
+            const seriesEndedAtCashClose = timestamps.length === closes.length
                 && sparkLastBarIsUsCashClose(timestamps)
                 && Number.isFinite(last);
             const full = Number(r.fulldayPrice);
-            const price = cashClose ? last : (Number.isFinite(full) ? full : last);
+            const price = Number.isFinite(full) ? full : last;
             if (!Number.isFinite(price) || !Number.isFinite(prev)) return null;
-            const change = cashClose
-                ? (price - prev)
-                : (Number.isFinite(Number(r.fulldayChange)) ? Number(r.fulldayChange) : (price - prev));
-            const changePercent = cashClose
-                ? (prev ? (change / prev) * 100 : 0)
-                : (Number.isFinite(Number(r.fulldayChangePercent))
-                    ? Number(r.fulldayChangePercent)
-                    : (prev ? (change / prev) * 100 : 0));
+            // Derive the move from the price we actually show. fulldayChange sometimes
+            // stays on the regular-session close while fulldayPrice has already moved.
+            const change = price - prev;
+            const changePercent = prev ? (change / prev) * 100 : 0;
             return {
                 price,
                 change,
                 changePercent,
                 previousClose: prev,
                 shortName: r.symbol || null,
-                marketState: cashClose ? usCashStateAfterClose() : (r.marketState || null),
+                marketState: seriesEndedAtCashClose ? usCashStateAfterClose() : (r.marketState || null),
                 currency: r.currency || null,
                 volume: Number.isFinite(Number(r.volume)) ? Number(r.volume) : null,
                 dayHigh: null,
@@ -4354,8 +4350,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 postMarketVolume: null,
                 preMarketTime: null,
                 postMarketTime: null,
-                // Set when price is the 16:00 cash close so merge does not paste an older AH print back on.
-                sessionClosed: cashClose,
+                // Regular-session bars are done. Do not paste an older cached AH print over fulldayPrice.
+                sessionClosed: seriesEndedAtCashClose,
                 closes,
                 timestamps,
             };
@@ -4399,8 +4395,8 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 if (q.yearLow == null && prev.yearLow != null) q.yearLow = prev.yearLow;
                 if (q.dayHigh == null && prev.dayHigh != null) q.dayHigh = prev.dayHigh;
                 if (q.dayLow == null && prev.dayLow != null) q.dayLow = prev.dayLow;
-                // Spark never sends PRE/AH. Copying the cached print back is why refresh
-                // kept old numbers after the close instead of the 16:00 price.
+                // Spark never sends a separate AH print. Copying the cached one back
+                // covered the new fulldayPrice, so refresh looked like it kept old numbers.
                 if (q.sessionClosed) {
                     q.preMarketPrice = null;
                     q.preMarketChange = null;
