@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.8.8</title>
+    <title>ROTHBERG TERMINAL v1.8.9</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys except an optional aisstream.io key for faster AIS.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1259,7 +1259,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.8.8</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.8.9</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -7751,6 +7751,28 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
                 : (height - padT - padB);
             const volY0 = padT + priceInnerH + volGap;
             const stepX = innerW / (pts.length - 1);
+            // CLOSE / 09:30 are placed by the clock. The price line has to use that
+            // same clock. Spacing by bar index parks the 16:00 print in the AH band
+            // when premarket minutes are missing, so the line crosses 16:00 at an
+            // earlier price.
+            const haveTs = ts.length >= 2;
+            const tStart = haveTs ? ts[0] : 0;
+            const tEnd = haveTs ? ts[ts.length - 1] : 0;
+            const tSpan = (tEnd - tStart) || 1;
+            const useTimeX = !!(sessionWindows && sessionWindows.regular && ts.length === pts.length && haveTs);
+            const xForTime = (t) => padL + ((t - tStart) / tSpan) * innerW;
+            const xOf = (i) => useTimeX ? xForTime(ts[i]) : (padL + i * stepX);
+            let barW = Math.max(1.2, Math.min(10, stepX * 0.72));
+            if (useTimeX) {
+                const dts = [];
+                for (let i = 1; i < ts.length; i++) {
+                    const dt = ts[i] - ts[i - 1];
+                    if (dt > 0) dts.push(dt);
+                }
+                dts.sort((a, b) => a - b);
+                const med = dts.length ? dts[Math.floor(dts.length / 2)] : 60;
+                barW = Math.max(1.2, Math.min(8, ((med / tSpan) * innerW) * 0.72));
+            }
 
             const yPrice = (v) => padT + priceInnerH - ((v - min) / range) * priceInnerH;
 
@@ -7800,10 +7822,7 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
             let sessionLines = '';
             let sessionShade = '';
             if (sessionWindows && sessionWindows.regular && ts.length >= 2) {
-                const tStart = ts[0];
-                const tEnd = ts[ts.length - 1];
-                const tSpan = tEnd - tStart || 1;
-                const xFor = (t) => padL + ((t - tStart) / tSpan) * innerW;
+                const xFor = xForTime;
                 const openT  = sessionWindows.regular.start;
                 const closeT = sessionWindows.regular.end;
                 const fmtClock = (t) => new Date(t * 1000).toLocaleTimeString('en-US', {
@@ -7850,9 +7869,9 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
 
             let priceGeom = '';
             if (candleMode) {
-                const bw = Math.max(1.2, Math.min(10, stepX * 0.72));
+                const bw = barW;
                 for (let i = 0; i < pts.length; i++) {
-                    const x = padL + i * stepX;
+                    const x = xOf(i);
                     const o = ods[i];
                     const hi = hds[i];
                     const lo = lds[i];
@@ -7889,7 +7908,7 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
                 };
                 for (let i = 0; i < pts.length; i++) {
                     const k = kindAt(ts[i]);
-                    const xy = `${(padL + i * stepX).toFixed(1)},${yPrice(pts[i]).toFixed(1)}`;
+                    const xy = `${xOf(i).toFixed(1)},${yPrice(pts[i]).toFixed(1)}`;
                     if (runKind && k !== runKind) {
                         run.push(xy);
                         flush();
@@ -7903,7 +7922,7 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
                 flush();
             } else {
                 const coords = pts.map((v, i) => {
-                    const x = (padL + i * stepX).toFixed(1);
+                    const x = xOf(i).toFixed(1);
                     const y = yPrice(v).toFixed(1);
                     return `${x},${y}`;
                 }).join(' ');
@@ -7919,8 +7938,8 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
                 volGeom += `<line x1="${padL}" y1="${volY0}" x2="${width - padR}" y2="${volY0}" stroke="var(--border-color)" stroke-width="0.5"/>`;
                 volGeom += `<text x="${padL - 6}" y="${volY0 + 11}" text-anchor="end" fill="var(--text-dim)" font-size="8" font-family="IBM Plex Mono, monospace">VOL</text>`;
                 for (let i = 0; i < vds.length; i++) {
-                    const x = padL + i * stepX;
-                    const bwBar = Math.max(1, Math.min(8, stepX * 0.78));
+                    const x = xOf(i);
+                    const bwBar = Math.max(1, Math.min(8, barW));
                     const hBar = vds[i] * vScale;
                     const y1 = vBase - hBar;
                     volGeom += `<rect x="${(x - bwBar / 2).toFixed(1)}" y="${y1.toFixed(1)}" width="${bwBar.toFixed(1)}" height="${hBar.toFixed(1)}" fill="var(--text-dim)" opacity="0.45" stroke="none"/>`;
