@@ -8,7 +8,7 @@ A single-file, browser-only clone of the Bloomberg Terminal — phosphor-green m
 
 > Click the screenshot or the launch link above to open the live terminal in your browser. No install. Quotes, news, flights, vessels, and hazard feeds need no keys. An optional aisstream.io key only speeds up AIS.
 
-**Release:** the live header and browser tab show **v1.8.7** so you can confirm you are on the current build after a refresh or deploy.
+**Release:** the live header and browser tab show **v1.8.8** so you can confirm you are on the current build after a refresh or deploy.
 
 ---
 
@@ -101,7 +101,7 @@ Heat map is **not** listed here — it is a **DISPLAY** option on the types belo
 
 Click any equity/index/crypto/commodity/forex/bond row to open a full-screen drilldown:
 
-- **Multi-range chart** — 1D · 5D · 1M · 3M · YTD · 1Y · 5Y, with a dashed `prev close` reference line on the 1D view
+- **Multi-range chart** — 1D · 5D · 1M · 3M · YTD · 1Y · 5Y, with a dashed `prev close` reference line on the 1D view. If the 1-minute chart does not come back, the drilldown draws the thumbnail's own bars and shows a **[RETRY]** button.
 - **Fundamentals grid** — P/E (TTM + Forward), Market Cap, EPS, PEG, P/S, Enterprise Value, EV/Rev, Revenue (TTM), Net Income (TTM), 52W High/Low
 - **Sector / industry / exchange tags**
 - **Per-ticker recent news** — 5 most recent Google News headlines for that company
@@ -364,7 +364,7 @@ Whichever one succeeds becomes the preferred proxy for subsequent requests in th
 ```
 
 - **Caching:** runtime `newsCache` (TTL-guarded) plus in-memory `quoteCache` with **debounced persistence** to localStorage (`bloomberg_quote_cache_v1`: 7-day TTL per entry, max **400** symbols, 500ms debounce) so reloads show last-known prices immediately while a fresh refresh runs; persisted rows render **dim** (`--stale`) until new data lands. EXTERNAL ACCOUNT holdings use the same stale tint, with **dim red** on negative stale changes where applicable.
-- **Refresh:** auto-refresh every 60s (configurable), plus manual `[R]` or `[REFRESH]` button.
+- **Refresh:** auto-refresh every 60s (configurable), plus the header **[R]** button (iPhone and iPad have no R key), the keyboard **R** key, or the status-bar **[REFRESH]** button.
 
 ---
 

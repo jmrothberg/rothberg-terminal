@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.8.7</title>
+    <title>ROTHBERG TERMINAL v1.8.8</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys except an optional aisstream.io key for faster AIS.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -107,6 +107,11 @@
         }
 
         .header-btn:hover { background: var(--highlight); }
+        /* iPhone / iPad have no R key. This is the same refresh, with a finger-sized target. */
+        .header-btn--r {
+            padding: 8px 14px;
+            font-weight: 600;
+        }
 
         .main-grid {
             display: grid;
@@ -1254,13 +1259,14 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.8.7</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.8.8</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
                 <button class="header-btn" onclick="exportState()" title="Download current layout as JSON">[EXPORT]</button>
                 <button class="header-btn" onclick="document.getElementById('importFile').click()" title="Load a layout from a JSON file">[IMPORT]</button>
                 <input id="importFile" type="file" accept="application/json,.json" style="display:none" onchange="importState(this.files[0])">
+                <button class="header-btn header-btn--r" onclick="refreshAll()" title="Refresh quotes. Same as the R key on a keyboard.">[R]</button>
                 <button class="header-btn" onclick="toggleHelp()">[HELP]</button>
                 <div class="header-time" id="headerTime">--:--:-- EST</div>
             </div>
@@ -1635,7 +1641,7 @@ HERE:         CENTER chip on FLIGHTS / VESSELS / event maps — device GPS
 
                 <div class="help-section">
                     <div class="help-section-title">KEYBOARD SHORTCUTS</div>
-                    <pre>R         Refresh all panels
+                    <pre>[R] header button, or the R key on a keyboard   Refresh all panels
 H         Toggle this help
 ESC       Close help / close open tray
 Enter     (in symbol input) add typed symbol
@@ -1653,7 +1659,7 @@ OR). See those sections above. On touch devices without Shift, use a <strong>lon
                     <pre>If prices show DATA UNAVAILABLE: a public CORS proxy may be
 down. The app automatically tries multiple proxies in sequence.
 Stale values (dim green) mean the last-known cached price.
-Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
+Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (default 60s).</pre>
                 </div>
             </div>
         </div>
@@ -2359,7 +2365,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
         // Some proxies (notably codetabs) return HTTP 200 with a short "Edge: Too Many Requests"
         // body when rate-limited, which would otherwise pin that proxy as `currentProxy` and
         // starve subsequent calls. Detect and reject those degenerate bodies before committing.
-        async function fetchViaProxy(url, { parseJson = true, signal = null, cacheBust = true, timeoutMs = PROXY_FETCH_ATTEMPT_MS } = {}) {
+        async function fetchViaProxy(url, { parseJson = true, signal = null, cacheBust = true, timeoutMs = PROXY_FETCH_ATTEMPT_MS, accept = null } = {}) {
             // Cache-bust the inner URL so neither the CORS proxy nor the browser HTTP
             // cache serves a stale response. Yahoo/Polymarket/RSS ignore unknown params.
             // ADS-B path APIs (adsb.lol) return HTTP 400 if ?_t= is appended — pass cacheBust:false.
@@ -2426,7 +2432,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                             if (text.length < 120 && /too many requests|rate ?limit|request timeout|upstream|unauthorized/i.test(text)) {
                                 throw new Error(`proxy short-body: ${text.slice(0, 80)}`);
                             }
-                            return parseJson ? JSON.parse(text) : text;
+                            const body = parseJson ? JSON.parse(text) : text;
+                            // A fast proxy often returns a JSON error shell. Do not let that
+                            // beat a slower proxy that actually has the chart.
+                            if (accept && !accept(body)) throw new Error('unusable body');
+                            return body;
                         })
                         .then((body) => win(proxyIdx, body))
                         .catch((err) => fail(err));
@@ -3003,7 +3013,11 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             const includePrePost = range === '1d';
             const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=${includePrePost}`;
             try {
-                const data = await fetchViaProxy(url);
+                // 1m + pre/post is a large body. 5s is enough for a quote batch and too short for this.
+                const data = await fetchViaProxy(url, {
+                    timeoutMs: 12000,
+                    accept: (body) => !!(body && body.chart && Array.isArray(body.chart.result) && body.chart.result[0]),
+                });
                 const r = data?.chart?.result?.[0];
                 if (!r) return null;
                 const qi = r.indicators?.quote?.[0] || {};
@@ -3047,6 +3061,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                         cleanTs.push(timestamps[i]);
                     }
                 }
+                if (cleanCloses.length < 2) return null;
                 const out = {
                     closes: cleanCloses,
                     opens: cleanOpens,
@@ -3065,6 +3080,36 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             } catch (err) {
                 return null;
             }
+        }
+
+        /** Thumbnail already has today's bars. Use them when the 1m chart proxy fails. */
+        function chartFromQuoteCache(sym) {
+            const q = quoteCache[sym];
+            if (!q || !Array.isArray(q.closes) || q.closes.length < 2) return null;
+            const closes = q.closes.slice();
+            const timestamps = Array.isArray(q.timestamps) && q.timestamps.length === closes.length
+                ? q.timestamps.slice()
+                : [];
+            return {
+                closes,
+                opens: closes.slice(),
+                highs: closes.slice(),
+                lows: closes.slice(),
+                volumes: closes.map(() => 0),
+                timestamps,
+                previousClose: q.previousClose ?? null,
+                currency: q.currency || null,
+                sessionWindows: null,
+                sessionVolumes: null,
+                fromThumbnail: true,
+                ts: Date.now(),
+            };
+        }
+
+        function drilldownChartFailHtml() {
+            return `<div class="error-message">CHART UNAVAILABLE
+                <button type="button" class="header-btn header-btn--r" onclick="retryDrilldownChart()">[RETRY]</button>
+            </div>`;
         }
 
         /**
@@ -7204,23 +7249,28 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
             const cachedName = quoteCache[sym] && quoteCache[sym].shortName && quoteCache[sym].shortName !== sym
                 ? quoteCache[sym].shortName : null;
             const newsQuery = cachedName ? `${cachedName} ${sym}` : `${sym} stock`;
-            const [chartRes, fundRes, newsRes] = await Promise.allSettled([
-                fetchChart(sym, '1d', '1m'),
-                fetchFundamentals(sym),
-                fetchNewsRSS(newsQuery, 8),
-            ]);
+            // Chart first. Fundamentals + news were racing it on the same proxies and the 1m body lost.
+            let ch = await fetchChart(sym, '1d', '1m');
+            if (!ch) ch = await fetchChart(sym, '1d', '1m');
             if (!currentDrilldown || currentDrilldown.symbol !== sym) return;
-
-            if (chartRes.status === 'fulfilled' && chartRes.value) {
-                const ch = chartRes.value;
+            if (ch && ch.closes && ch.closes.length >= 2) {
                 mergeOneDayChartIntoQuoteCache(sym, ch);
                 drawDrilldownChart(ch, sym);
                 renderDrilldownPrice(sym);
                 rerenderQuotePanelsContainingSymbol(sym);
             } else {
-                document.getElementById('ddChart').innerHTML =
-                    '<div class="error-message">CHART UNAVAILABLE — PRESS R TO RETRY</div>';
+                const thumb = chartFromQuoteCache(sym);
+                if (thumb) {
+                    drawDrilldownChart(thumb, sym);
+                } else {
+                    document.getElementById('ddChart').innerHTML = drilldownChartFailHtml();
+                }
             }
+            const [fundRes, newsRes] = await Promise.allSettled([
+                fetchFundamentals(sym),
+                fetchNewsRSS(newsQuery, 8),
+            ]);
+            if (!currentDrilldown || currentDrilldown.symbol !== sym) return;
             if (fundRes.status === 'fulfilled' && fundRes.value) {
                 const f = fundRes.value;
                 const qc = quoteCache[sym];
@@ -7237,7 +7287,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     }, sym);
                 } else {
                     document.getElementById('ddStats').innerHTML =
-                        '<div class="error-message">FUNDAMENTALS UNAVAILABLE — PRESS R TO RETRY</div>';
+                        '<div class="error-message">FUNDAMENTALS UNAVAILABLE — TAP [R] IN THE HEADER</div>';
                 }
             }
             if (newsRes.status === 'fulfilled' && Array.isArray(newsRes.value)) {
@@ -7252,6 +7302,28 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                     : '<div class="error-message">NO HEADLINES FOUND FOR THIS TICKER</div>';
             } else {
                 document.getElementById('ddNews').innerHTML = '<div class="error-message">NEWS UNAVAILABLE</div>';
+            }
+        }
+
+        async function retryDrilldownChart() {
+            if (!currentDrilldown || currentDrilldown.kind !== 'ticker') return;
+            const sym = currentDrilldown.symbol;
+            const range = currentDrilldown.range || '1d';
+            const interval = range === '1d' ? '1m' : (RANGE_INTERVALS[range] || '1d');
+            delete chartCache[`${sym}|${range}|${interval}`];
+            document.getElementById('ddChart').innerHTML = '<div class="loading">LOADING CHART…</div>';
+            let ch = await fetchChart(sym, range, interval);
+            if (!ch) ch = await fetchChart(sym, range, interval);
+            if (!currentDrilldown || currentDrilldown.symbol !== sym) return;
+            if (ch && ch.closes && ch.closes.length >= 2) {
+                if (range === '1d') mergeOneDayChartIntoQuoteCache(sym, ch);
+                drawDrilldownChart(ch, sym);
+                renderDrilldownPrice(sym);
+                rerenderQuotePanelsContainingSymbol(sym);
+            } else {
+                const thumb = chartFromQuoteCache(sym);
+                if (thumb) drawDrilldownChart(thumb, sym);
+                else document.getElementById('ddChart').innerHTML = drilldownChartFailHtml();
             }
         }
 
@@ -7581,8 +7653,7 @@ Press [R] or wait for auto-refresh (default 60s) to retry.</pre>
                 renderDrilldownPrice(dSym);
                 rerenderQuotePanelsContainingSymbol(dSym);
             } else {
-                document.getElementById('ddChart').innerHTML =
-                    '<div class="error-message">CHART UNAVAILABLE FOR THIS RANGE</div>';
+                document.getElementById('ddChart').innerHTML = drilldownChartFailHtml();
             }
         }
 
