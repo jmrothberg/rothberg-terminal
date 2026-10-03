@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.8.9</title>
+    <title>ROTHBERG TERMINAL v1.8.10</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys except an optional aisstream.io key for faster AIS.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1259,7 +1259,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.8.9</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.8.10</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1457,7 +1457,13 @@ after-hours price in value and P/L.
 
 Clicking a name opens the chart for the live session either
 way: BEFORE (before pre-market), PRE, MKT, CLOSE, or AH.
-The 1D graph shades those sessions and marks the cash close.</pre>
+The 1D graph shades those sessions and marks the cash close.
+Watchlist and external account use that same zoom chart.
+The row line is filled from the same 1-minute series, so
+after-hours shows up there too. The volume strip uses that
+series: after-hours bars only appear when the feed sends
+after-hours volume. The headline AH VOL is that session,
+not the regular-session total.</pre>
                 </div>
 
                 <div class="help-section">
@@ -2538,10 +2544,12 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
                 const v = volumes[i];
                 if (preWin && t >= preWin.start && t < preWin.end) {
                     if (Number.isFinite(v)) { out.preVol += v; out.preHas = true; }
+                } else if (regWin && t >= regWin.start && t <= regWin.end) {
+                    // The bar stamped at regular.end (16:00) is the cash close, including
+                    // the closing auction. It is not after-hours volume.
+                    if (Number.isFinite(v)) out.regVol += v;
                 } else if (postWin && t >= postWin.start && t < postWin.end) {
                     if (Number.isFinite(v)) { out.postVol += v; out.postHas = true; }
-                } else if (regWin && t >= regWin.start && t < regWin.end) {
-                    if (Number.isFinite(v)) out.regVol += v;
                 }
             }
             return out;
@@ -3046,20 +3054,25 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
                 const cleanLows = [];
                 const cleanVols = [];
                 const cleanTs = [];
+                // Keep a bar that has volume even when Yahoo omits the close.
+                // Those are the after-hours volume prints. Carry the last price so the line stays put.
+                let lastClose = NaN;
                 for (let i = 0; i < closes.length; i++) {
-                    if (!Number.isNaN(closes[i])) {
-                        const c = closes[i];
-                        const o = Number.isFinite(opens[i]) ? opens[i] : c;
-                        const h = Number.isFinite(highs[i]) ? highs[i] : c;
-                        const l = Number.isFinite(lows[i]) ? lows[i] : c;
-                        const v = Number.isFinite(vols[i]) ? vols[i] : 0;
-                        cleanCloses.push(c);
-                        cleanOpens.push(o);
-                        cleanHighs.push(h);
-                        cleanLows.push(l);
-                        cleanVols.push(v);
-                        cleanTs.push(timestamps[i]);
-                    }
+                    const hasClose = !Number.isNaN(closes[i]);
+                    const v = Number.isFinite(vols[i]) ? vols[i] : 0;
+                    if (!hasClose && !(v > 0)) continue;
+                    const c = hasClose ? closes[i] : lastClose;
+                    if (!Number.isFinite(c)) continue;
+                    if (hasClose) lastClose = c;
+                    const o = Number.isFinite(opens[i]) ? opens[i] : c;
+                    const h = Number.isFinite(highs[i]) ? highs[i] : c;
+                    const l = Number.isFinite(lows[i]) ? lows[i] : c;
+                    cleanCloses.push(c);
+                    cleanOpens.push(o);
+                    cleanHighs.push(h);
+                    cleanLows.push(l);
+                    cleanVols.push(v);
+                    cleanTs.push(timestamps[i]);
                 }
                 if (cleanCloses.length < 2) return null;
                 const out = {
@@ -3128,12 +3141,13 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
             }
             const last = closes[closes.length - 1];
             const prev = q.previousClose;
-            if (!Number.isFinite(last) || !Number.isFinite(prev)) return;
-            q.change = last - prev;
-            q.changePercent = prev ? (q.change / prev) * 100 : 0;
-            q.price = last;
             const ms = (q.marketState || '').toUpperCase();
-            if (ms === 'REGULAR') {
+            // Outside the regular session the row price stays the cash close.
+            // The sparkline still uses the full series, including after-hours.
+            if (ms === 'REGULAR' && Number.isFinite(last) && Number.isFinite(prev)) {
+                q.change = last - prev;
+                q.changePercent = prev ? (q.change / prev) * 100 : 0;
+                q.price = last;
                 q.regularPrice = last;
                 q.regularChange = q.change;
                 q.regularChangePercent = q.changePercent;
@@ -3145,10 +3159,22 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
             );
             if (volAgg) {
                 if (volAgg.regVol > 0) q.volume = volAgg.regVol;
-                // Only overwrite when we have a positive sum — never wipe fetchQuote pre/post vol
-                // when the close-filtered chart series missed extended-hours bars.
+                // Only overwrite pre when we have a positive sum — never wipe a Nasdaq pre figure
+                // when Yahoo's 1m bars report volume 0 in that window.
                 if (volAgg.preHas && volAgg.preVol > 0) q.preMarketVolume = volAgg.preVol;
                 if (volAgg.postHas && volAgg.postVol > 0) q.postMarketVolume = volAgg.postVol;
+                else if (volAgg.postHas && volAgg.postVol === 0) {
+                    // Yahoo 1m bars carry no AH share volume. A stored post volume here is the
+                    // old 16:00 auction mis-counted as AH. Drop it and refill from Nasdaq.
+                    q.postMarketVolume = null;
+                }
+            }
+            if (q.postMarketPrice != null && !(q.postMarketVolume > 0)) {
+                void enrichExtendedVolumesFromNasdaq(sym, q).then(() => {
+                    if (quoteCache[sym] !== q) return;
+                    paintQuotePanels();
+                    if (currentDrilldown && currentDrilldown.symbol === sym) renderDrilldownPrice(sym);
+                });
             }
             q.ts = Date.now();
             q.stale = false;
@@ -4519,7 +4545,8 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
         }
 
         async function refreshQuotes() {
-            // Batch Yahoo spark (prices + sparklines). Do not fetch a 1m chart per ticker.
+            // Batch Yahoo spark for prices. The 1m chart (same series as the zoom) follows
+            // in refreshRowChartsFromDrilldownSeries so row lines include after-hours.
             const symbols = collectAllSymbols();
             const yahoo = [];
             const other = [];
@@ -4555,6 +4582,33 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
                     await Promise.all(Array.from({ length: Math.min(conc, other.length) || 0 }, () => worker()));
                 })(),
             ]);
+            // Same 1-minute series the zoom chart uses, so the watchlist line includes
+            // pre-market and after-hours. Does not replace the cash-close price.
+            void refreshRowChartsFromDrilldownSeries();
+        }
+
+        let rowChartRefresh = null;
+        function refreshRowChartsFromDrilldownSeries() {
+            if (rowChartRefresh) return rowChartRefresh;
+            const symbols = collectAllSymbols().filter((s) => {
+                const u = String(s).toUpperCase();
+                return !u.endsWith('-USD') && !u.endsWith('=X');
+            });
+            rowChartRefresh = (async () => {
+                const conc = 2;
+                let i = 0;
+                async function worker() {
+                    while (i < symbols.length) {
+                        const sym = symbols[i++];
+                        const ch = await fetchChart(sym, '1d', '1m');
+                        if (!ch || !quoteCache[sym]) continue;
+                        mergeOneDayChartIntoQuoteCache(sym, ch);
+                        rerenderQuotePanelsContainingSymbol(sym);
+                    }
+                }
+                await Promise.all(Array.from({ length: Math.min(conc, symbols.length) }, () => worker()));
+            })().finally(() => { rowChartRefresh = null; });
+            return rowChartRefresh;
         }
 
         async function refreshNewsPanels() {
@@ -7591,8 +7645,18 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
             const regCloseTag = sessionTag
                 ? `<span class="dd-session-tag ${sessionTag === 'PRE' || sessionTag === 'AH' ? 'ext' : 'reg'}" title="This chart follows the live session, not the panel EXT HRS switch">${sessionTag}</span>`
                 : '';
-            const regVolStr = (pf !== 'yield' && pf !== 'forex') ? formatVolume(q.volume) : null;
-            const regVolHTML = regVolStr ? `<span class="dd-ext-vol">VOL ${regVolStr}</span>` : '';
+            // Headline volume is the session on the tag. AH must not repeat the regular-session total.
+            let headVol = q.volume;
+            let headVolLabel = 'VOL';
+            if (sessionTag === 'AH') {
+                headVol = q.postMarketVolume;
+                headVolLabel = 'AH VOL';
+            } else if (sessionTag === 'PRE') {
+                headVol = q.preMarketVolume;
+                headVolLabel = 'PRE VOL';
+            }
+            const regVolStr = (pf !== 'yield' && pf !== 'forex') ? formatVolume(headVol) : null;
+            const regVolHTML = regVolStr ? `<span class="dd-ext-vol">${headVolLabel} ${regVolStr}</span>` : '';
 
             el.innerHTML = `
                 ${regCloseTag}
