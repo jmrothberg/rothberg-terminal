@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.8.10</title>
+    <title>ROTHBERG TERMINAL v1.8.11</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys except an optional aisstream.io key for faster AIS.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1259,7 +1259,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.8.10</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.8.11</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -1459,8 +1459,9 @@ Clicking a name opens the chart for the live session either
 way: BEFORE (before pre-market), PRE, MKT, CLOSE, or AH.
 The 1D graph shades those sessions and marks the cash close.
 Watchlist and external account use that same zoom chart.
-The row line is filled from the same 1-minute series, so
-after-hours shows up there too. The volume strip uses that
+While the market is open the bottom-right label reads MARKET: OPEN
+and the row keeps the regular-session prices. After 16:00 ET it
+reads MARKET: AFTER-HOURS. The volume strip uses that
 series: after-hours bars only appear when the feed sends
 after-hours volume. The headline AH VOL is that session,
 not the regular-session total.</pre>
@@ -3134,16 +3135,19 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
             if (!q || !chart || !Array.isArray(chart.closes) || chart.closes.length < 2) return;
             const closes = chart.closes.slice();
             const tsIn = Array.isArray(chart.timestamps) ? chart.timestamps : [];
-            q.closes = closes;
-            q.timestamps = tsIn.length === closes.length ? tsIn.slice() : [];
             if (chart.previousClose != null && Number.isFinite(chart.previousClose)) {
                 q.previousClose = chart.previousClose;
             }
             const last = closes[closes.length - 1];
             const prev = q.previousClose;
-            const ms = (q.marketState || '').toUpperCase();
+            const ms = (q.marketState || usEquitySessionNow()).toUpperCase();
+            // During the regular session keep the spark line. The 1-minute series
+            // includes pre-market and was replacing the live bars on the row.
+            if (ms !== 'REGULAR') {
+                q.closes = closes;
+                q.timestamps = tsIn.length === closes.length ? tsIn.slice() : (q.timestamps || []);
+            }
             // Outside the regular session the row price stays the cash close.
-            // The sparkline still uses the full series, including after-hours.
             if (ms === 'REGULAR' && Number.isFinite(last) && Number.isFinite(prev)) {
                 q.change = last - prev;
                 q.changePercent = prev ? (q.change / prev) * 100 : 0;
@@ -4358,6 +4362,27 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
             return hh === 16 && mm === 0;
         }
 
+        /** US cash session from the New York clock. Spark quotes do not carry marketState. */
+        function usEquitySessionNow() {
+            const parts = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/New_York',
+                weekday: 'short',
+                hour: '2-digit',
+                minute: '2-digit',
+                hourCycle: 'h23',
+            }).formatToParts(new Date());
+            const wd = parts.find((p) => p.type === 'weekday')?.value;
+            if (wd === 'Sat' || wd === 'Sun') return 'CLOSED';
+            const hh = Number(parts.find((p) => p.type === 'hour')?.value);
+            const mm = Number(parts.find((p) => p.type === 'minute')?.value);
+            const mins = hh * 60 + mm;
+            if (mins < 4 * 60) return 'PREPRE';
+            if (mins < 9 * 60 + 30) return 'PRE';
+            if (mins < 16 * 60) return 'REGULAR';
+            if (mins < 20 * 60) return 'POST';
+            return 'POSTPOST';
+        }
+
         /** Header label once the 16:00 bar is the price. POST and POSTPOST both read AFTER-HOURS. */
         function usCashStateAfterClose() {
             const parts = new Intl.DateTimeFormat('en-US', {
@@ -4412,7 +4437,7 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
                 changePercent,
                 previousClose: prev,
                 shortName: r.symbol || null,
-                marketState: seriesEndedAtCashClose ? usCashStateAfterClose() : (r.marketState || null),
+                marketState: seriesEndedAtCashClose ? usCashStateAfterClose() : (r.marketState || usEquitySessionNow()),
                 currency: r.currency || null,
                 volume: Number.isFinite(Number(r.volume)) ? Number(r.volume) : null,
                 dayHigh: null,
@@ -4485,16 +4510,27 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
                     q.preMarketChangePercent = null;
                     q.marketState = usCashStateAfterClose();
                 } else {
-                    if (q.marketState == null && prev.marketState) q.marketState = prev.marketState;
-                    if (q.preMarketPrice == null && prev.preMarketPrice != null) {
-                        q.preMarketPrice = prev.preMarketPrice;
-                        q.preMarketChange = prev.preMarketChange;
-                        q.preMarketChangePercent = prev.preMarketChangePercent;
-                    }
-                    if (q.postMarketPrice == null && prev.postMarketPrice != null) {
+                    if (q.marketState == null) q.marketState = usEquitySessionNow();
+                    const live = (q.marketState || '').toUpperCase();
+                    // Yesterday's POST flag was sticking all day because spark has no marketState.
+                    const inAfterHours = live === 'POST' || live === 'POSTPOST' || live === 'CLOSED';
+                    if (!inAfterHours) {
+                        q.postMarketPrice = null;
+                        q.postMarketChange = null;
+                        q.postMarketChangePercent = null;
+                        q.postMarketVolume = null;
+                        q.postMarketTime = null;
+                    } else if (q.postMarketPrice == null && prev.postMarketPrice != null) {
                         q.postMarketPrice = prev.postMarketPrice;
                         q.postMarketChange = prev.postMarketChange;
                         q.postMarketChangePercent = prev.postMarketChangePercent;
+                    }
+                    if (live === 'PRE' || live === 'PREPRE') {
+                        if (q.preMarketPrice == null && prev.preMarketPrice != null) {
+                            q.preMarketPrice = prev.preMarketPrice;
+                            q.preMarketChange = prev.preMarketChange;
+                            q.preMarketChangePercent = prev.preMarketChangePercent;
+                        }
                     }
                 }
                 if ((!q.preMarketVolume || q.preMarketVolume <= 0) && prev.preMarketVolume > 0) q.preMarketVolume = prev.preMarketVolume;
@@ -4582,9 +4618,12 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
                     await Promise.all(Array.from({ length: Math.min(conc, other.length) || 0 }, () => worker()));
                 })(),
             ]);
-            // Same 1-minute series the zoom chart uses, so the watchlist line includes
-            // pre-market and after-hours. Does not replace the cash-close price.
-            void refreshRowChartsFromDrilldownSeries();
+            // Only after the cash close. During the regular session the 5m spark is the
+            // live series; the 1-minute pre/post chart was painting after-hours on the row.
+            const sess = usEquitySessionNow();
+            if (sess === 'POST' || sess === 'POSTPOST' || sess === 'CLOSED') {
+                void refreshRowChartsFromDrilldownSeries();
+            }
         }
 
         let rowChartRefresh = null;
@@ -12364,11 +12403,9 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
         }
 
         function updateMarketStatus() {
-            // Check marketState from the first available quote
-            let ms = null;
-            for (const sym of Object.keys(quoteCache)) {
-                if (quoteCache[sym]?.marketState) { ms = quoteCache[sym].marketState; break; }
-            }
+            // Clock, not the first cached quote. A Friday POST flag was sticking
+            // on the bottom-right label through the next regular session.
+            const ms = usEquitySessionNow();
             const el = document.getElementById('marketStatus');
             if (!el) return;
             const map = {
