@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROTHBERG TERMINAL v1.8.11</title>
+    <title>ROTHBERG TERMINAL v1.8.12</title>
     <meta name="description" content="A free, single-file Rothberg Terminal: a browser-only Bloomberg-style dashboard — phosphor green on black, live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys except an optional aisstream.io key for faster AIS.">
     <meta property="og:title" content="ROTHBERG TERMINAL">
     <meta property="og:description" content="Free, browser-only Rothberg Terminal — live stocks, indices, crypto, forex, commodities, bonds, news, and movers. No API keys, no backend.">
@@ -1259,7 +1259,7 @@
     <div class="terminal">
         <div class="header">
             <div>
-                <div class="header-title">ROTHBERG TERMINAL v1.8.11</div>
+                <div class="header-title">ROTHBERG TERMINAL v1.8.12</div>
                 <div class="header-subtitle" id="headerSubtitle">[ FREE DATA · CORE MARKETS ]</div>
             </div>
             <div class="header-right">
@@ -4551,7 +4551,10 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
             if (!symbols.length) return out;
             const url = `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${symbols.map(encodeURIComponent).join(',')}&range=1d&interval=5m`;
             let data = null;
-            try { data = await fetchViaProxy(url); }
+            // A fast proxy often answers with an error shell or an empty spark. Without
+            // this check it beat the proxy that had prices, and the rows stayed stale all day.
+            const accept = (body) => iterSparkRows(body).some((r) => sparkRowToQuote(r));
+            try { data = await fetchViaProxy(url, { accept }); }
             catch (e) { console.warn('[quotes] spark chunk failed:', e?.message || e); return out; }
             const want = new Map(symbols.map(s => [String(s).toUpperCase(), s]));
             for (const r of iterSparkRows(data)) {
@@ -4571,8 +4574,9 @@ Tap [R] in the header (iPhone and iPad have no R key) or wait for auto-refresh (
                 let rows = await fetchYahooQuoteSnapshotChunk(chunk);
                 for (const [sym, q] of Object.entries(rows)) mergeQuoteSnapshot(sym, q);
                 paintQuotePanels();
+                // Retry once, including when the whole chunk came back empty.
                 const missing = chunk.filter(s => !rows[s]);
-                if (missing.length && missing.length < chunk.length) {
+                if (missing.length) {
                     rows = await fetchYahooQuoteSnapshotChunk(missing);
                     for (const [sym, q] of Object.entries(rows)) mergeQuoteSnapshot(sym, q);
                     paintQuotePanels();
